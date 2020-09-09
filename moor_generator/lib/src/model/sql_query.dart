@@ -1,3 +1,6 @@
+import 'package:collection/collection.dart';
+import 'package:meta/meta.dart';
+import 'package:moor/moor.dart' show $mrjf, $mrjc, UpdateKind;
 import 'package:moor_generator/src/analyzer/runner/results.dart';
 import 'package:moor_generator/src/utils/hash.dart';
 import 'package:recase/recase.dart';
@@ -35,16 +38,16 @@ class DeclaredDartQuery extends DeclaredQuery {
 /// A [DeclaredQuery] read from a `.moor` file, where the AST is already
 /// available.
 class DeclaredMoorQuery extends DeclaredQuery {
-  final AstNode query;
+  final DeclaredStatement astNode;
+  CrudStatement get query => astNode.statement;
   ParsedMoorFile file;
 
-  DeclaredMoorQuery(String name, this.query) : super(name);
+  DeclaredMoorQuery(String name, this.astNode) : super(name);
 
   factory DeclaredMoorQuery.fromStatement(DeclaredStatement stmt) {
     assert(stmt.identifier is SimpleName);
     final name = (stmt.identifier as SimpleName).name;
-    final query = stmt.statement;
-    return DeclaredMoorQuery(name, query);
+    return DeclaredMoorQuery(name, stmt);
   }
 }
 
@@ -106,13 +109,20 @@ class SqlSelectQuery extends SqlQuery {
   final List<MoorTable> readsFrom;
   final InferredResultSet resultSet;
 
+  /// The name of the result class, as requested by the user.
+  final String /*?*/ requestedResultClass;
+
   String get resultClassName {
     if (resultSet.matchingTable != null) {
-      return resultSet.matchingTable.dartTypeName;
+      return resultSet.matchingTable.table.dartTypeName;
     }
 
     if (resultSet.singleColumn) {
       return resultSet.columns.single.dartType;
+    }
+
+    if (resultSet.resultClassName != null) {
+      return resultSet.resultClassName;
     }
 
     return '${ReCase(name).pascalCase}Result';
@@ -124,13 +134,31 @@ class SqlSelectQuery extends SqlQuery {
     List<FoundElement> elements,
     this.readsFrom,
     this.resultSet,
+    this.requestedResultClass,
   ) : super(name, fromContext, elements,
             hasMultipleTables: readsFrom.length > 1);
+
+  /// Creates a copy of this [SqlSelectQuery] with a new [resultSet].
+  ///
+  /// The copy won't have a [requestedResultClass].
+  SqlSelectQuery replaceResultSet(InferredResultSet resultSet) {
+    return SqlSelectQuery(
+      name,
+      fromContext,
+      elements,
+      readsFrom,
+      resultSet,
+      null,
+    );
+  }
 }
 
 class UpdatingQuery extends SqlQuery {
-  final List<MoorTable> updates;
+  final List<WrittenMoorTable> updates;
   final bool isInsert;
+
+  bool get isOnlyDelete => updates.every((w) => w.kind == UpdateKind.delete);
+  bool get isOnlyUpdate => updates.every((w) => w.kind == UpdateKind.update);
 
   UpdatingQuery(String name, AnalysisContext fromContext,
       List<FoundElement> elements, this.updates,
@@ -143,20 +171,64 @@ class InferredResultSet {
   /// If the result columns of a SELECT statement exactly match one table, we
   /// can just use the data class generated for that table. Otherwise, we'd have
   /// to create another class.
-  final MoorTable matchingTable;
+  final MatchingMoorTable /*?*/ matchingTable;
+
+  /// Tables in the result set that should appear as a class.
+  ///
+  /// See [NestedResultTable] for further discussion and examples.
+  final List<NestedResultTable> nestedResults;
+  Map<NestedResultTable, String> _expandedNestedPrefixes;
+
   final List<ResultColumn> columns;
   final Map<ResultColumn, String> _dartNames = {};
 
-  InferredResultSet(this.matchingTable, this.columns);
+  /// The name of the Dart class generated to store this result set, or null if
+  /// it hasn't explicitly been set.
+  final String resultClassName;
+
+  /// Explicitly controls that no result class should be generated for this
+  /// result set.
+  ///
+  /// This is enabled on duplicate result sets caused by custom result class
+  /// names.
+  final bool dontGenerateResultClass;
+
+  InferredResultSet(
+    this.matchingTable,
+    this.columns, {
+    this.nestedResults = const [],
+    this.resultClassName,
+    this.dontGenerateResultClass = false,
+  });
 
   /// Whether a new class needs to be written to store the result of this query.
-  /// We don't need to do that for queries which return an existing table model
-  /// or if they only return exactly one column.
-  bool get needsOwnClass => matchingTable == null && columns.length > 1;
+  ///
+  /// We don't need to introduce result classes for queries which
+  /// - return an existing table model
+  /// - return exactly one column
+  ///
+  /// We always need to generate a class if the query contains nested results.
+  bool get needsOwnClass {
+    return matchingTable == null &&
+        (columns.length > 1 || nestedResults.isNotEmpty) &&
+        !dontGenerateResultClass;
+  }
 
   /// Whether this query returns a single column that should be returned
   /// directly.
-  bool get singleColumn => matchingTable == null && columns.length == 1;
+  bool get singleColumn =>
+      matchingTable == null && nestedResults.isEmpty && columns.length == 1;
+
+  String nestedPrefixFor(NestedResultTable table) {
+    if (_expandedNestedPrefixes == null) {
+      var index = 0;
+      _expandedNestedPrefixes = {
+        for (final nested in nestedResults) nested: 'nested_${index++}',
+      };
+    }
+
+    return _expandedNestedPrefixes[table];
+  }
 
   void forceDartNames(Map<ResultColumn, String> names) {
     _dartNames
@@ -183,6 +255,17 @@ class InferredResultSet {
     });
   }
 
+  /// Checks whether this and the [other] result set have the same columns and
+  /// nested result sets.
+  bool isCompatibleTo(InferredResultSet other) {
+    const columnsEquality = UnorderedIterableEquality(_ResultColumnEquality());
+    const nestedEquality =
+        UnorderedIterableEquality(_NestedResultTableEquality());
+
+    return columnsEquality.equals(columns, other.columns) &&
+        nestedEquality.equals(nestedResults, other.nestedResults);
+  }
+
   String _appendNumbersIfExists(String name) {
     final originalName = name;
     var counter = 1;
@@ -191,6 +274,26 @@ class InferredResultSet {
       counter++;
     }
     return name;
+  }
+}
+
+/// Information about a matching table. A table matches a query if a query
+/// selects all columns from that table, and nothing more.
+///
+/// We still need to handle column aliases.
+class MatchingMoorTable {
+  final MoorTable table;
+  final Map<String, MoorColumn> aliasToColumn;
+
+  MatchingMoorTable(this.table, this.aliasToColumn);
+
+  /// Whether the column alias can be ignored.
+  ///
+  /// This is the case if each result column name maps to a moor column with the
+  /// same name.
+  bool get effectivelyNoAlias {
+    return !aliasToColumn.entries
+        .any((entry) => entry.key != entry.value.name.name);
   }
 }
 
@@ -206,10 +309,73 @@ class ResultColumn {
   /// The dart type that can store a result of this column.
   String get dartType {
     if (converter != null) {
-      return converter.mappedType.displayName;
+      return converter.mappedType.getDisplayString();
     } else {
       return dartTypeNames[type];
     }
+  }
+
+  /// Hash-code that matching [compatibleTo], so that two compatible columns
+  /// will have the same [compatibilityHashCode].
+  int get compatibilityHashCode {
+    return $mrjf($mrjc(name.hashCode,
+        $mrjc(type.hashCode, $mrjc(nullable.hashCode, converter.hashCode))));
+  }
+
+  /// Checks whether this column is compatible to the [other], meaning that they
+  /// have the same name and type.
+  bool compatibleTo(ResultColumn other) {
+    return other.name == name &&
+        other.type == type &&
+        other.nullable == nullable &&
+        other.converter == converter;
+  }
+}
+
+/// A nested table extracted from a `**` column.
+///
+/// For instance, consider this query:
+/// ```sql
+/// CREATE TABLE groups (id INTEGER NOT NULL PRIMARY KEY);
+/// CREATE TABLE users (id INTEGER NOT NULL PRIMARY KEY);
+/// CREATE TABLE members (
+///   group INT REFERENCES ..,
+///   user INT REFERENCES ...,
+///   is_admin BOOLEAN
+/// );
+///
+/// membersOf: SELECT users.**, members.is_admin FROM members
+///   INNER JOIN users ON users.id = members.user;
+/// ```
+///
+/// The generated result set should now look like this:
+/// ```dart
+/// class MembersOfResult {
+///   final User users;
+///   final bool isAdmin;
+/// }
+/// ```
+///
+/// Knowing that `User` should be extracted into a field is represented with a
+/// [NestedResultTable] information as part of the result set.
+class NestedResultTable {
+  final NestedStarResultColumn from;
+  final String name;
+  final MoorTable table;
+
+  NestedResultTable(this.from, this.name, this.table);
+
+  String get dartFieldName => ReCase(name).camelCase;
+
+  /// [hashCode] that matches [isCompatibleTo] instead of `==`.
+  int get compatibilityHashCode {
+    return $mrjf($mrjc(name.hashCode, table.hashCode));
+  }
+
+  /// Checks whether this is compatible to the [other] nested result, which is
+  /// the case iff they have the same and read from the same table.
+  bool isCompatibleTo(NestedResultTable other) {
+    return other.name == name && other.table == table;
   }
 }
 
@@ -237,6 +403,9 @@ class FoundVariable extends FoundElement {
   /// The (inferred) type for this variable.
   final ColumnType type;
 
+  /// The type converter to apply before writing this value.
+  final UsedTypeConverter converter;
+
   /// The first [Variable] in the sql statement that has this [index].
   // todo: Do we really need to expose this? We only use [resolvedIndex], which
   // should always be equal to [index].
@@ -248,8 +417,14 @@ class FoundVariable extends FoundElement {
   /// without having to look at other variables.
   final bool isArray;
 
-  FoundVariable(this.index, this.name, this.type, this.variable, this.isArray)
-      : assert(variable.resolvedIndex == index);
+  FoundVariable({
+    @required this.index,
+    @required this.name,
+    @required this.type,
+    @required this.variable,
+    this.isArray = false,
+    this.converter,
+  }) : assert(variable.resolvedIndex == index);
 
   @override
   String get dartParameterName {
@@ -262,7 +437,13 @@ class FoundVariable extends FoundElement {
 
   @override
   String get parameterType {
-    final innerType = dartTypeNames[type] ?? 'dynamic';
+    String innerType;
+    if (converter != null) {
+      innerType = converter.mappedType.getDisplayString();
+    } else {
+      innerType = dartTypeNames[type] ?? 'dynamic';
+    }
+
     if (isArray) {
       return 'List<$innerType>';
     }
@@ -297,8 +478,7 @@ class FoundDartPlaceholder extends FoundElement {
         if (columnType == null) return 'Expression';
 
         final dartType = dartTypeNames[columnType];
-        final sqlImplType = sqlTypes[columnType];
-        return 'Expression<$dartType, $sqlImplType>';
+        return 'Expression<$dartType>';
         break;
       case DartPlaceholderType.limit:
         return 'Limit';
@@ -325,4 +505,32 @@ class FoundDartPlaceholder extends FoundElement {
             other.columnType == columnType &&
             other.name == name;
   }
+}
+
+class _ResultColumnEquality implements Equality<ResultColumn> {
+  const _ResultColumnEquality();
+
+  @override
+  bool equals(ResultColumn e1, ResultColumn e2) => e1.compatibleTo(e2);
+
+  @override
+  int hash(ResultColumn e) => e.compatibilityHashCode;
+
+  @override
+  bool isValidKey(Object e) => e is ResultColumn;
+}
+
+class _NestedResultTableEquality implements Equality<NestedResultTable> {
+  const _NestedResultTableEquality();
+
+  @override
+  bool equals(NestedResultTable e1, NestedResultTable e2) {
+    return e1.isCompatibleTo(e2);
+  }
+
+  @override
+  int hash(NestedResultTable e) => e.compatibilityHashCode;
+
+  @override
+  bool isValidKey(Object e) => e is NestedResultTable;
 }

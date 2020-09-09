@@ -2,24 +2,21 @@ import 'package:moor/moor.dart';
 import 'package:test/test.dart';
 
 import '../data/utils/expect_equality.dart';
+import '../data/utils/expect_generated.dart';
 
-// ignore_for_file: deprecated_member_use_from_same_package
+typedef _Extractor = Expression<int> Function(Expression<DateTime> d);
 
-typedef _Extractor = Expression<int, IntType> Function(
-    Expression<DateTime, DateTimeType> d);
-
-/// Tests the top level [year], [month], ..., [second] methods
 void main() {
   final column = GeneratedDateTimeColumn('val', null, false);
 
   group('extracting information via top-level method', () {
     final expectedResults = <_Extractor, String>{
-      year: 'CAST(strftime("%Y", val, "unixepoch") AS INTEGER)',
-      month: 'CAST(strftime("%m", val, "unixepoch") AS INTEGER)',
-      day: 'CAST(strftime("%d", val, "unixepoch") AS INTEGER)',
-      hour: 'CAST(strftime("%H", val, "unixepoch") AS INTEGER)',
-      minute: 'CAST(strftime("%M", val, "unixepoch") AS INTEGER)',
-      second: 'CAST(strftime("%S", val, "unixepoch") AS INTEGER)',
+      (d) => d.year: "CAST(strftime('%Y', val, 'unixepoch') AS INTEGER)",
+      (d) => d.month: "CAST(strftime('%m', val, 'unixepoch') AS INTEGER)",
+      (d) => d.day: "CAST(strftime('%d', val, 'unixepoch') AS INTEGER)",
+      (d) => d.hour: "CAST(strftime('%H', val, 'unixepoch') AS INTEGER)",
+      (d) => d.minute: "CAST(strftime('%M', val, 'unixepoch') AS INTEGER)",
+      (d) => d.second: "CAST(strftime('%S', val, 'unixepoch') AS INTEGER)",
     };
 
     expectedResults.forEach((key, value) {
@@ -40,5 +37,14 @@ void main() {
     expr.writeInto(ctx);
 
     expect(ctx.sql, 'strftime(\'%s\', CURRENT_TIMESTAMP) + 10');
+  });
+
+  test('plus and minus durations', () {
+    final expr = currentDateAndTime +
+        const Duration(days: 3) -
+        const Duration(seconds: 5);
+
+    expect(expr,
+        generates('strftime(\'%s\', CURRENT_TIMESTAMP) + ? - ?', [259200, 5]));
   });
 }

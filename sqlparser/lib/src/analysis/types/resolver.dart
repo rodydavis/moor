@@ -81,7 +81,7 @@ class TypeResolver {
 
   ResolveResult resolveColumn(Column column) {
     return _cache((column) {
-      if (column is TableColumn) {
+      if (column is ColumnWithType) {
         // todo probably needs to be nullable when coming from a join?
         return ResolveResult(column.type);
       } else if (column is ExpressionColumn) {
@@ -112,9 +112,10 @@ class TypeResolver {
         } else {
           return const ResolveResult.unknown();
         }
-      } else if (expr is Invocation) {
+      } else if (expr is ExpressionInvocation) {
         return resolveFunctionCall(expr);
       } else if (expr is IsExpression ||
+          expr is IsNullExpression ||
           expr is InExpression ||
           expr is StringComparisonExpression ||
           expr is BetweenExpression ||
@@ -130,6 +131,9 @@ class TypeResolver {
         }
       } else if (expr is CaseExpression) {
         return resolveExpression(expr.whens.first.then);
+      } else if (expr is CastExpression) {
+        final type = context.schemaSupport.resolveColumnType(expr.typeName);
+        return ResolveResult(type);
       } else if (expr is SubQuery) {
         final columns = expr.select.resultSet.resolvedColumns;
         if (columns.length != 1) {
@@ -149,40 +153,25 @@ class TypeResolver {
       if (l is StringLiteral) {
         return ResolveResult(
             ResolvedType(type: l.isBinary ? BasicType.blob : BasicType.text));
+      } else if (l is BooleanLiteral) {
+        return const ResolveResult(ResolvedType.bool());
       } else if (l is NumericLiteral) {
-        if (l is BooleanLiteral) {
-          return const ResolveResult(ResolvedType.bool());
-        } else {
-          return ResolveResult(
-              ResolvedType(type: l.isInt ? BasicType.int : BasicType.real));
-        }
+        return ResolveResult(
+            ResolvedType(type: l.isInt ? BasicType.int : BasicType.real));
       } else if (l is NullLiteral) {
         return const ResolveResult(
             ResolvedType(type: BasicType.nullType, nullable: true));
+      } else if (l is TimeConstantLiteral) {
+        return const ResolveResult(ResolvedType(type: BasicType.text));
       }
 
       throw StateError('Unknown literal $l');
     }, l);
   }
 
-  /// Returns the expanded parameters of a function [call]. When a
-  /// [StarFunctionParameter] is used, it's expanded to the
-  /// [ReferenceScope.availableColumns].
-  List<Typeable> _expandParameters(Invocation call) {
-    final sqlParameters = call.parameters;
-    if (sqlParameters is ExprFunctionParameters) {
-      return sqlParameters.parameters;
-    } else if (sqlParameters is StarFunctionParameter) {
-      // if * is used as a parameter, it refers to all columns in all tables
-      // that are available in the current scope.
-      return call.scope.availableColumns.whereType<TableColumn>().toList();
-    }
-    throw ArgumentError('Unknown parameters: $sqlParameters');
-  }
-
-  ResolveResult resolveFunctionCall(Invocation call) {
-    return _cache((Invocation call) {
-      final parameters = _expandParameters(call);
+  ResolveResult resolveFunctionCall(ExpressionInvocation call) {
+    return _cache((ExpressionInvocation call) {
+      final parameters = call.expandParameters();
       final firstNullable =
           // ignore: avoid_bool_literals_in_conditional_expressions
           parameters.isEmpty ? false : justResolve(parameters.first).nullable;
@@ -201,12 +190,13 @@ class TypeResolver {
           }
           break;
         case 'sum':
-          final firstType = justResolve(parameters.first);
-          if (firstType.type?.type == BasicType.int) {
+          final firstType =
+              parameters.isEmpty ? null : justResolve(parameters.first);
+          if (firstType?.type?.type == BasicType.int) {
             return firstType;
           } else {
             return ResolveResult(ResolvedType(
-                type: BasicType.real, nullable: firstType.nullable));
+                type: BasicType.real, nullable: firstType?.nullable));
           }
           break; // can't happen, though
         case 'lower':
@@ -290,37 +280,9 @@ class TypeResolver {
           ]).withNullable(true);
       }
 
-      if (options.enableJson1) {
-        switch (call.name.toLowerCase()) {
-          case 'json':
-          case 'json_array':
-          case 'json_insert':
-          case 'json_replace':
-          case 'json_set':
-          case 'json_object':
-          case 'json_patch':
-          case 'json_remove':
-          case 'json_quote':
-          case 'json_group_array':
-          case 'json_group_object':
-            return const ResolveResult(ResolvedType(type: BasicType.text));
-          case 'json_type':
-            return const ResolveResult(
-                ResolvedType(type: BasicType.text, nullable: true));
-          case 'json_valid':
-            return const ResolveResult(ResolvedType.bool());
-          case 'json_extract':
-            // return unknown so that we don't hide the state error. In reality
-            // we have no idea what json_extract returns
-            return const ResolveResult.unknown();
-          case 'json_array_length':
-            return const ResolveResult(ResolvedType(type: BasicType.int));
-        }
-      }
-
       if (options.addedFunctions.containsKey(lowercaseName)) {
         return options.addedFunctions[lowercaseName]
-            .inferReturnType(this, call, parameters);
+            .inferReturnType(context, call, parameters);
       }
 
       throw StateError('Unknown function: ${call.name}');
@@ -328,10 +290,10 @@ class TypeResolver {
   }
 
   ResolveResult _resolveFunctionArgument(
-      Invocation parent, Expression argument) {
+      SqlInvocation parent, Expression argument) {
     return _cache<Expression>((argument) {
       final functionName = parent.name.toLowerCase();
-      final args = _expandParameters(parent);
+      final args = parent.expandParameters();
 
       // the second argument of nth_value is always an integer
       if (functionName == 'nth_value' &&
@@ -342,7 +304,7 @@ class TypeResolver {
 
       if (options.addedFunctions.containsKey(functionName)) {
         return options.addedFunctions[functionName]
-            .inferArgumentType(this, parent, argument);
+            .inferArgumentType(context, parent, argument);
       }
 
       return const ResolveResult.unknown();
@@ -351,7 +313,19 @@ class TypeResolver {
 
   ResolveResult inferType(Expression e) {
     return _cache<Expression>((e) {
-      final parent = e.parent;
+      var parent = e.parent;
+      if (e is Variable) {
+        final specifiedType = context.stmtOptions.specifiedTypeOf(e);
+        if (specifiedType != null) {
+          return ResolveResult(specifiedType);
+        }
+      }
+
+      if (parent is FunctionParameters) {
+        // analyze the function, the parameters are meaningless
+        parent = parent.parent;
+      }
+
       if (parent is Expression) {
         final result = _argumentType(parent, e);
         // while more context is needed, look at the parent
@@ -414,7 +388,7 @@ class TypeResolver {
         parent is Tuple ||
         parent is UnaryExpression) {
       return const ResolveResult.needsContext();
-    } else if (parent is Invocation) {
+    } else if (parent is ExpressionInvocation) {
       // if we have a special case for the mix of function and argument, use
       // that. Otherwise, just assume that the argument has the same type as the
       // return type of the function

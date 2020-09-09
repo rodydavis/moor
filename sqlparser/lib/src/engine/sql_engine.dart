@@ -1,7 +1,7 @@
 import 'dart:collection';
 
 import 'package:sqlparser/sqlparser.dart';
-import 'package:sqlparser/src/engine/module/fts5.dart';
+import 'package:sqlparser/src/analysis/types2/types.dart' as t2;
 import 'package:sqlparser/src/engine/options.dart';
 import 'package:sqlparser/src/reader/parser/parser.dart';
 import 'package:sqlparser/src/reader/tokenizer/scanner.dart';
@@ -12,20 +12,16 @@ import 'builtin_tables.dart';
 
 class SqlEngine {
   /// All tables registered with [registerTable].
-  final List<Table> knownTables = [];
+  final List<NamedResultSet> knownResultSets = [];
   final List<Module> _knownModules = [];
 
   /// Internal options for this sql engine.
   final EngineOptions options;
 
-  SqlEngine(
-      {bool useMoorExtensions = false,
-      bool enableJson1Module = false,
-      bool enableFts5 = false})
-      : options = _constructOptions(
-            moor: useMoorExtensions,
-            json1: enableJson1Module,
-            fts5: enableFts5) {
+  SchemaFromCreateTable _schemaReader;
+
+  SqlEngine([EngineOptions engineOptions])
+      : options = engineOptions ?? EngineOptions() {
     for (final extension in options.enabledExtensions) {
       extension.register(this);
     }
@@ -34,10 +30,32 @@ class SqlEngine {
     registerTable(sqliteSequence);
   }
 
+  /// Obtain a [SchemaFromCreateTable] instance compatible with the
+  /// configuration of this engine.
+  ///
+  /// The returned reader can be used to read the table structure from a
+  /// [TableInducingStatement] by using [SchemaFromCreateTable.read].
+  SchemaFromCreateTable get schemaReader {
+    return _schemaReader ??=
+        SchemaFromCreateTable(moorExtensions: options.useMoorExtensions);
+  }
+
   /// Registers the [table], which means that it can later be used in sql
   /// statements.
   void registerTable(Table table) {
-    knownTables.add(table);
+    registerResultSet(table);
+  }
+
+  /// Registers the [view], which means that it can later be used in sql
+  /// statements.
+  void registerView(View view) {
+    registerResultSet(view);
+  }
+
+  /// Registers an arbitrary [namedResultSet], which means that it can later
+  /// be used in sql statements.
+  void registerResultSet(NamedResultSet namedResultSet) {
+    knownResultSets.add(namedResultSet);
   }
 
   /// Registers the [module], which means that it can be used as a function in
@@ -53,10 +71,16 @@ class SqlEngine {
     options.addFunctionHandler(handler);
   }
 
+  /// Registers the [handler], which can infer result sets for a table-valued
+  /// function.
+  void registerTableValuedFunctionHandler(TableValuedFunctionHandler handler) {
+    options.addTableValuedFunctionHandler(handler);
+  }
+
   ReferenceScope _constructRootScope({ReferenceScope parent}) {
     final scope = parent == null ? ReferenceScope(null) : parent.createChild();
-    for (final table in knownTables) {
-      scope.register(table.name, table);
+    for (final resultSet in knownResultSets) {
+      scope.register(resultSet.name, resultSet);
     }
 
     for (final module in _knownModules) {
@@ -77,10 +101,6 @@ class SqlEngine {
     final scanner = Scanner(source, scanMoorTokens: options.useMoorExtensions);
     final tokens = scanner.scanTokens();
 
-    if (scanner.errors.isNotEmpty) {
-      throw CumulatedTokenizerException(scanner.errors);
-    }
-
     return tokens;
   }
 
@@ -90,7 +110,7 @@ class SqlEngine {
     final tokensForParser = tokens.where((t) => !t.invisibleToParser).toList();
     final parser = Parser(tokensForParser, useMoor: options.useMoorExtensions);
 
-    final stmt = parser.statement();
+    final stmt = parser.safeStatement();
     return ParseResult._(stmt, tokens, parser.errors, sql, null);
   }
 
@@ -100,7 +120,7 @@ class SqlEngine {
     assert(options.useMoorExtensions);
 
     final tokens = tokenize(content);
-    final autoComplete = AutoCompleteEngine(tokens);
+    final autoComplete = AutoCompleteEngine(tokens, this);
 
     final tokensForParser = tokens.where((t) => !t.invisibleToParser).toList();
     final parser =
@@ -119,9 +139,18 @@ class SqlEngine {
   /// The analyzer needs to know all the available tables to resolve references
   /// and result columns, so all known tables should be registered using
   /// [registerTable] before calling this method.
-  AnalysisContext analyze(String sql) {
+  /// The [stmtOptions] can be used to pass additional options used to analyze
+  /// this statement only.
+  AnalysisContext analyze(String sql, {AnalyzeStatementOptions stmtOptions}) {
     final result = parse(sql);
-    return analyzeParsed(result);
+    final analyzed = analyzeParsed(result, stmtOptions: stmtOptions);
+
+    // Add parsing errors that occured to the beginning since they are the most
+    // prominent problems.
+    analyzed.errors
+        .insertAll(0, result.errors.map((e) => AnalysisError.fromParser(e)));
+
+    return analyzed;
   }
 
   /// Analyzes a parsed [result] statement. The [AnalysisContext] returned
@@ -130,10 +159,13 @@ class SqlEngine {
   /// The analyzer needs to know all the available tables to resolve references
   /// and result columns, so all known tables should be registered using
   /// [registerTable] before calling this method.
-  AnalysisContext analyzeParsed(ParseResult result) {
+  /// The [stmtOptions] can be used to pass additional options used to analyze
+  /// this statement only.
+  AnalysisContext analyzeParsed(ParseResult result,
+      {AnalyzeStatementOptions stmtOptions}) {
     final node = result.rootNode;
 
-    final context = AnalysisContext(node, result.sql, options);
+    final context = _createContext(node, result.sql, stmtOptions);
     _analyzeContext(context);
 
     return context;
@@ -147,10 +179,19 @@ class SqlEngine {
   /// The analyzer needs to know all the available tables to resolve references
   /// and result columns, so all known tables should be registered using
   /// [registerTable] before calling this method.
-  AnalysisContext analyzeNode(AstNode node, String file) {
-    final context = AnalysisContext(node, file, options);
+  /// The [stmtOptions] can be used to pass additional options used to analyze
+  /// this statement only.
+  AnalysisContext analyzeNode(AstNode node, String file,
+      {AnalyzeStatementOptions stmtOptions}) {
+    final context = _createContext(node, file, stmtOptions);
     _analyzeContext(context);
     return context;
+  }
+
+  AnalysisContext _createContext(
+      AstNode node, String sql, AnalyzeStatementOptions stmtOptions) {
+    return AnalysisContext(node, sql, options,
+        stmtOptions: stmtOptions, schemaSupport: schemaReader);
   }
 
   void _analyzeContext(AnalysisContext context) {
@@ -160,13 +201,20 @@ class SqlEngine {
     try {
       AstPreparingVisitor(context: context).start(node);
 
-      if (node is CrudStatement) {
-        node
-          ..accept(ColumnResolver(context))
-          ..accept(ReferenceResolver(context))
-          ..accept(TypeResolvingVisitor(context))
-          ..accept(LintingVisitor(options, context));
+      node
+        ..acceptWithoutArg(ColumnResolver(context))
+        ..acceptWithoutArg(ReferenceResolver(context));
+
+      if (options.useLegacyTypeInference) {
+        node.acceptWithoutArg(TypeResolvingVisitor(context));
+      } else {
+        final session = t2.TypeInferenceSession(context, options);
+        final resolver = t2.TypeResolver(session);
+        resolver.run(node);
+        context.types2 = session.results;
       }
+
+      node.acceptWithoutArg(LintingVisitor(options, context));
     } catch (_) {
       rethrow;
     }
@@ -180,13 +228,6 @@ class SqlEngine {
         .firstWhere((e) => e != null, orElse: () => null);
 
     root.scope = _constructRootScope(parent: safeScope);
-  }
-
-  static EngineOptions _constructOptions({bool moor, bool fts5, bool json1}) {
-    final extensions = [
-      if (fts5) const Fts5Extension(),
-    ];
-    return EngineOptions(moor, json1, extensions);
   }
 }
 

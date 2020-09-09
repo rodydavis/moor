@@ -27,7 +27,7 @@ provider that manages the database instance:
 void main() {
   runApp(
     Provider<MyDatabase>(
-      builder: (context) => MyDatabase(),
+      create: (context) => MyDatabase(),
       child: MyFlutterApp(),
       dispose: (context, db) => db.close(),
    ),
@@ -104,3 +104,10 @@ Firebase is a very good option when
 
 - your data model can be expressed as documents instead of relations
 - you don't have your own backend, but still need to synchronize data
+
+## Can I view a moor database?
+
+Yes! Moor stores its data in a sqlite3 database file that can be extracted from the device and inspected locally.
+
+To inspect a database on a device directly, you can use the [`moor_db_viewer`](https://pub.dev/packages/moor_db_viewer)
+package by Koen Van Looveren.

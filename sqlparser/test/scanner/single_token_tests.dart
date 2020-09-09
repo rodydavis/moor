@@ -37,6 +37,7 @@ Map<String, TokenType> testCases = {
   '>': TokenType.more,
   '!=': TokenType.exclamationEqual,
   "'hello there'": TokenType.stringLiteral,
+  "''": TokenType.stringLiteral,
   '1.123': TokenType.numberLiteral,
   '1.32e5': TokenType.numberLiteral,
   '.123e-3': TokenType.numberLiteral,
@@ -46,10 +47,109 @@ Map<String, TokenType> testCases = {
   '"UPDATE"': TokenType.identifier,
   '@foo': TokenType.atSignVariable,
   ':named': TokenType.colonVariable,
+  '"spo\uD83C\uDF83ky"': TokenType.identifier,
+  '[account name]': TokenType.identifier,
 };
 
 void main() {
-  test('parses single tokens', () {
-    testCases.forEach(expectFullToken);
+  group('single token:', () {
+    for (final entry in testCases.entries) {
+      test('parses ${entry.key}', () {
+        expectFullToken(entry.key, entry.value);
+      });
+    }
+  });
+
+  test('can escape strings', () {
+    final scanner = Scanner("'what''s up'");
+    scanner.scanTokens();
+
+    expect(scanner.tokens, hasLength(2)); // eof token at the end
+    expect(
+      scanner.tokens.first,
+      const TypeMatcher<StringLiteralToken>()
+          .having((token) => token.value, 'value', "what's up"),
+    );
+    expect(scanner.tokens[1].type, TokenType.eof);
+  });
+
+  test('issues error for unterminated string literals', () {
+    final scanner = Scanner("'unterminated");
+
+    expect(scanner.scanTokens, throwsA(isA<CumulatedTokenizerException>()));
+
+    expect(
+      scanner.errors,
+      contains(const TypeMatcher<TokenizerError>()
+          .having((e) => e.message, 'message', 'Unterminated string')),
+    );
+  });
+
+  group('parses numeric literals', () {
+    void checkLiteral(String lexeme, NumericToken other, num value) {
+      final scanner = Scanner(lexeme)..scanTokens();
+      final token = scanner.tokens.first as NumericToken;
+
+      expect(token.hasSameStructureAs(other), isTrue,
+          reason: '$token should have the same structure as $other');
+
+      expect(token.parsedNumber, equals(value));
+    }
+
+    test('hexadecimal', () {
+      checkLiteral('0x123', NumericToken(null, hexDigits: '123'), 0x123);
+    });
+
+    test('integer without exponent', () {
+      checkLiteral('42', NumericToken(null, digitsBeforeDecimal: '42'), 42);
+    });
+
+    test('integer, positive exponent', () {
+      checkLiteral('42E1',
+          NumericToken(null, digitsBeforeDecimal: '42', exponent: 1), 420);
+    });
+
+    test('integer, negative exponent', () {
+      checkLiteral('42E-1',
+          NumericToken(null, digitsBeforeDecimal: '42', exponent: -1), 4.2);
+    });
+
+    test('decimal', () {
+      checkLiteral(
+        '4.2',
+        NumericToken(
+          null,
+          digitsBeforeDecimal: '4',
+          digitsAfterDecimal: '2',
+          hasDecimalPoint: true,
+        ),
+        4.2,
+      );
+    });
+
+    test('decimal, nothing after decimal dot', () {
+      checkLiteral(
+        '4.e2',
+        NumericToken(
+          null,
+          digitsBeforeDecimal: '4',
+          exponent: 2,
+          hasDecimalPoint: true,
+        ),
+        400.0,
+      );
+    });
+
+    test('decimal, nothing before decimal dot', () {
+      checkLiteral(
+        '.2',
+        NumericToken(
+          null,
+          digitsAfterDecimal: '2',
+          hasDecimalPoint: true,
+        ),
+        .2,
+      );
+    });
   });
 }

@@ -35,6 +35,7 @@ class TableWriter {
     if (table.isVirtualTable) {
       _buffer.write(', VirtualTableInfo$typeArgs ');
     }
+
     _buffer
       ..write('{\n')
       // write a GeneratedDatabase reference that is set in the constructor
@@ -65,7 +66,7 @@ class TableWriter {
     _writePrimaryKeyOverride();
 
     _writeMappingMethod();
-    _writeReverseMappingMethod();
+    // _writeReverseMappingMethod();
 
     _writeAliasGenerator();
 
@@ -78,8 +79,8 @@ class TableWriter {
 
   void _writeConvertersAsStaticFields() {
     for (final converter in table.converters) {
-      final typeName = converter.typeOfConverter.displayName;
-      final code = converter.expression.toSource();
+      final typeName = converter.displayNameOfConverter;
+      final code = converter.expression;
       _buffer.write('static $typeName ${converter.fieldName} = $code;');
     }
   }
@@ -95,41 +96,6 @@ class TableWriter {
       ..write('return $dataClassName.fromData'
           '(data, _db, prefix: effectivePrefix);\n')
       ..write('}\n');
-  }
-
-  void _writeReverseMappingMethod() {
-    // Map<String, Variable> entityToSql(covariant UpdateCompanion<D> instance)
-    _buffer
-      ..write('@override\nMap<String, Variable> entityToSql('
-          '${table.getNameForCompanionClass(scope.options)} d) {\n')
-      ..write('final map = <String, Variable> {};');
-
-    for (final column in table.columns) {
-      _buffer.write('if (d.${column.dartGetterName}.present) {');
-      final mapSetter = 'map[${asDartLiteral(column.name.name)}] = '
-          'Variable<${column.variableTypeName}, ${column.sqlTypeName}>';
-
-      if (column.typeConverter != null) {
-        // apply type converter before writing the variable
-        final converter = column.typeConverter;
-        final fieldName = '${table.tableInfoName}.${converter.fieldName}';
-        _buffer
-          ..write('final converter = $fieldName;\n')
-          ..write(mapSetter)
-          ..write('(converter.mapToSql(d.${column.dartGetterName}.value));');
-      } else {
-        // no type converter. Write variable directly
-        _buffer
-          ..write(mapSetter)
-          ..write('(')
-          ..write('d.${column.dartGetterName}.value')
-          ..write(');');
-      }
-
-      _buffer.write('}');
-    }
-
-    _buffer.write('return map; \n}\n');
   }
 
   void _writeColumnGetter(MoorColumn column) {
@@ -179,7 +145,13 @@ class TableWriter {
       expressionBuffer..write(name)..write(': ')..write(value);
     });
 
-    expressionBuffer.write(');');
+    expressionBuffer.write(')');
+
+    if (column.clientDefaultCode != null) {
+      expressionBuffer.write('..clientDefault = ${column.clientDefaultCode}');
+    }
+
+    expressionBuffer.write(';');
 
     writeMemoizedGetterWithBody(
       buffer: _buffer,
@@ -205,12 +177,15 @@ class TableWriter {
 
     _buffer
       ..write('@override\nVerificationContext validateIntegrity'
-          '(${table.getNameForCompanionClass(scope.options)} d, '
+          '(Insertable<${table.dartTypeName}> instance, '
           '{bool isInserting = false}) {\n')
-      ..write('final context = VerificationContext();\n');
+      ..write('final context = VerificationContext();\n')
+      ..write('final data = instance.toColumns(true);\n');
+
+    const locals = {'instance', 'isInserting', 'context', 'data'};
 
     for (final column in table.columns) {
-      final getterName = column.dartGetterName;
+      final getterName = column.thisIfNeeded(locals);
       final metaName = _fieldNameForColumnMeta(column);
 
       if (column.typeConverter != null) {
@@ -221,14 +196,21 @@ class TableWriter {
         continue;
       }
 
+      final columnNameString = asDartLiteral(column.name.name);
       _buffer
-        ..write('if (d.$getterName.present) {\n')
+        ..write('if (data.containsKey($columnNameString)) {\n')
         ..write('context.handle('
             '$metaName, '
-            '$getterName.isAcceptableValue(d.$getterName.value, $metaName));')
-        ..write('} else if ($getterName.isRequired && isInserting) {\n')
-        ..write('context.missing($metaName);\n')
-        ..write('}\n');
+            '$getterName.isAcceptableOrUnknown('
+            'data[$columnNameString], $metaName));')
+        ..write('}');
+
+      if (table.isColumnRequiredForInsert(column)) {
+        _buffer
+          ..write(' else if (isInserting) {\n')
+          ..write('context.missing($metaName);\n')
+          ..write('}\n');
+      }
     }
     _buffer.write('return context;\n}\n');
   }

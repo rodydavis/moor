@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:convert/convert.dart';
+import 'package:moor/moor.dart';
 
 part 'custom_type.dart';
 part 'type_system.dart';
@@ -22,18 +23,6 @@ abstract class SqlType<T> {
   /// Maps the response from sql back to a readable dart type.
   T mapFromDatabaseResponse(dynamic response);
 }
-
-/// A marker interface for [SqlType]s that can be compared using the comparison
-/// operators in sql.
-abstract class ComparableType<T> extends SqlType<T> {}
-
-/// A marker interface for [SqlType]s that have a `+` operator.
-abstract class Monoid<T> extends SqlType<T> {}
-
-/// A marker interface for [SqlType]s that support all basic arithmetic
-/// operators (`+`, `-`, `*` and `/`) while also being a [ComparableType]
-abstract class FullArithmetic<T> extends Monoid<T>
-    implements ComparableType<T> {}
 
 /// A mapper for boolean values in sql. Booleans are represented as integers,
 /// where 0 means false and any other value means true.
@@ -67,7 +56,7 @@ class BoolType extends SqlType<bool> {
 }
 
 /// Mapper for string values in sql.
-class StringType extends SqlType<String> implements Monoid<String> {
+class StringType extends SqlType<String> {
   /// Constant constructor used by the type system
   const StringType();
 
@@ -90,12 +79,15 @@ class StringType extends SqlType<String> implements Monoid<String> {
 }
 
 /// Maps [int] values from and to sql
-class IntType extends SqlType<int> implements FullArithmetic<int> {
+class IntType extends SqlType<int> {
   /// Constant constructor used by the type system
   const IntType();
 
   @override
-  int mapFromDatabaseResponse(dynamic response) => response as int;
+  int mapFromDatabaseResponse(dynamic response) {
+    if (response == null || response is int /*?*/) return response as int /*?*/;
+    return int.parse(response.toString());
+  }
 
   @override
   String mapToSqlConstant(int content) => content?.toString() ?? 'NULL';
@@ -107,8 +99,7 @@ class IntType extends SqlType<int> implements FullArithmetic<int> {
 }
 
 /// Maps [DateTime] values from and to sql
-class DateTimeType extends SqlType<DateTime>
-    implements ComparableType<DateTime> {
+class DateTimeType extends SqlType<DateTime> {
   /// Constant constructor used by the type system
   const DateTimeType();
 
@@ -157,7 +148,7 @@ class BlobType extends SqlType<Uint8List> {
 }
 
 /// Maps [double] values from and to sql
-class RealType extends SqlType<double> implements FullArithmetic<double> {
+class RealType extends SqlType<double> {
   /// Constant constructor used by the type system
   const RealType();
 

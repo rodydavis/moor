@@ -38,6 +38,31 @@ void main() {
       verify(executor.runUpdate(
           'UPDATE todos SET title = ? WHERE id < ?;', ['Changed title', 50]));
     });
+
+    test('for data classes', () async {
+      await (db.update(db.users)..where((u) => u.id.equals(3))).write(User(
+        isAwesome: true,
+        // these fields shouldn't change
+        id: null,
+        name: null,
+        profilePicture: null,
+        creationTime: null,
+      ));
+
+      verify(executor.runUpdate(
+        'UPDATE users SET is_awesome = ? WHERE id = ?;',
+        [1, 3],
+      ));
+    });
+
+    test('with escaped column names', () async {
+      await db
+          .update(db.pureDefaults)
+          .write(const PureDefaultsCompanion(txt: Value('foo')));
+
+      verify(executor
+          .runUpdate('UPDATE pure_defaults SET `insert` = ?;', ['foo']));
+    });
   });
 
   group('generates replace statements', () {
@@ -89,7 +114,8 @@ void main() {
             content: Value('Updated content'),
           ));
 
-      verify(streamQueries.handleTableUpdates({db.todosTable}));
+      verify(streamQueries.handleTableUpdates(
+          {TableUpdate.onTable(db.todosTable, kind: UpdateKind.update)}));
     });
 
     test('are not issued when no data was changed', () async {
@@ -99,6 +125,20 @@ void main() {
 
       verifyNever(streamQueries.handleTableUpdates(any));
     });
+  });
+
+  test('can update with custom companions', () async {
+    await db.update(db.todosTable).replace(TodosTableCompanion.custom(
+          id: const Variable(4),
+          content: db.todosTable.content,
+          targetDate: db.todosTable.targetDate + const Duration(days: 1),
+        ));
+
+    verify(executor.runUpdate(
+      'UPDATE todos SET content = content, target_date = target_date + ? '
+      'WHERE id = ?;',
+      argThat(equals([86400, 4])),
+    ));
   });
 
   group('custom updates', () {
@@ -131,7 +171,8 @@ void main() {
     test('informs about updated tables', () async {
       await db.customUpdate('', updates: {db.users, db.todosTable});
 
-      verify(streamQueries.handleTableUpdates({db.users, db.todosTable}));
+      verify(streamQueries.handleTableUpdates(
+          {const TableUpdate('users'), const TableUpdate('todos')}));
     });
   });
 }

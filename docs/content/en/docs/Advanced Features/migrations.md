@@ -44,12 +44,15 @@ methods will throw.
 
 `sqlite` can feel a bit limiting when it comes to migrations - there only are methods to create tables and columns.
 Existing columns can't be altered or removed. A workaround is described [here](https://stackoverflow.com/a/805508), it
-can be used together with [`issueCustomQuery`](https://pub.dev/documentation/moor/latest/moor/Migrator/issueCustomQuery.html)
-to run the statements.
+can be used together with `customStatement` to run the statements.
 
 ## Post-migration callbacks
-Starting from moor 1.5, you can use the `beforeOpen` parameter in the `MigrationStrategy` which will be called after
-migrations, but after any other queries are run. You could use it to populate data after the database has been created:
+
+The `beforeOpen` parameter in `MigrationStrategy` can be used to populate data after the database has been created.
+It runs after migrations, but before any other query. Note that it will be called whenever the database is opened,
+regardless of whether a migration actually ran or not. You can use `details.hadUpgrade` or `details.wasCreated` to
+check whether migrations were necessary:
+
 ```dart
 beforeOpen: (details) async {
     if (details.wasCreated) {
@@ -87,5 +90,5 @@ yet. You can just delete your apps' data and reinstall the app - the database wi
 will be created again. Please note that uninstalling is not enough sometimes - Android might have backed up
 the database file and will re-create it when installing the app again.
 
-You can also delete and re-create all tables everytime your app is opened, see [this comment](https://github.com/simolus3/moor/issues/188#issuecomment-542682912)
+You can also delete and re-create all tables every time your app is opened, see [this comment](https://github.com/simolus3/moor/issues/188#issuecomment-542682912)
 on how that can be achieved.

@@ -5,13 +5,13 @@ import 'suite.dart';
 
 void customObjectTests(TestExecutor executor) {
   test('custom objects', () async {
-    final db = Database(executor.createExecutor());
+    final db = Database(executor.createConnection());
 
-    var preferences = await db.settingsForQuery(1).getSingle();
+    var preferences = await db.settingsFor(1).getSingle();
     expect(preferences, isNull);
 
     await db.updateSettings(1, Preferences(true));
-    preferences = await db.settingsForQuery(1).getSingle();
+    preferences = await db.settingsFor(1).getSingle();
 
     expect(preferences.receiveEmails, true);
 

@@ -10,6 +10,10 @@ Token token(TokenType type) {
   return Token(type, null);
 }
 
+StringLiteralToken stringLiteral(String value) {
+  return StringLiteralToken(value, null);
+}
+
 InlineDartToken inlineDart(String dartCode) {
   return InlineDartToken(fakeSpan('`$dartCode`'));
 }
@@ -18,16 +22,21 @@ IdentifierToken identifier(String content) {
   return IdentifierToken(false, fakeSpan(content));
 }
 
-void testMoorFile(String moorFile, MoorFile expected) {
-  final parsed =
-      SqlEngine(useMoorExtensions: true).parseMoorFile(moorFile).rootNode;
+MoorFile parseMoor(String content) {
+  return SqlEngine(EngineOptions(useMoorExtensions: true))
+      .parseMoorFile(content)
+      .rootNode as MoorFile;
+}
 
+void testMoorFile(String moorFile, MoorFile expected) {
+  final parsed = parseMoor(moorFile);
   enforceHasSpan(parsed);
   enforceEqual(parsed, expected);
 }
 
 void testStatement(String sql, AstNode expected, {bool moorMode = false}) {
-  final parsed = SqlEngine(useMoorExtensions: moorMode).parse(sql).rootNode;
+  final parsed =
+      SqlEngine(EngineOptions(useMoorExtensions: moorMode)).parse(sql).rootNode;
   enforceHasSpan(parsed);
   enforceEqual(parsed, expected);
 }

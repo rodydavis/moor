@@ -22,19 +22,11 @@ class CustomSelectStatement with Selectable<QueryRow> {
 
   /// Constructs a fetcher for this query. The fetcher is responsible for
   /// updating a stream at the right moment.
-  @Deprecated(
-      'There is no need to use this method. Please use watch() directly')
-  QueryStreamFetcher<List<QueryRow>> constructFetcher() {
-    return _constructFetcher();
-  }
-
-  /// Constructs a fetcher for this query. The fetcher is responsible for
-  /// updating a stream at the right moment.
   QueryStreamFetcher<List<QueryRow>> _constructFetcher() {
     final args = _mapArgs();
 
     return QueryStreamFetcher<List<QueryRow>>(
-      readsFrom: tables,
+      readsFrom: TableUpdateQuery.onAllTables(tables),
       fetchData: () => _executeWithMappedArgs(args),
       key: StreamKey(query, args, QueryRow),
     );
@@ -50,12 +42,6 @@ class CustomSelectStatement with Selectable<QueryRow> {
     return _db.createStream(_constructFetcher());
   }
 
-  /// Executes this query and returns the result.
-  @Deprecated('Use get() instead')
-  Future<List<QueryRow>> execute() async {
-    return get();
-  }
-
   List<dynamic> _mapArgs() {
     final ctx = GenerationContext.fromDb(_db);
     return variables.map((v) => v.mapToSimpleValue(ctx)).toList();
@@ -64,7 +50,7 @@ class CustomSelectStatement with Selectable<QueryRow> {
   Future<List<QueryRow>> _executeWithMappedArgs(
       List<dynamic> mappedArgs) async {
     final result =
-        await _db.executor.doWhenOpened((e) => e.runSelect(query, mappedArgs));
+        await _db.doWhenOpened((e) => e.runSelect(query, mappedArgs));
 
     return result.map((row) => QueryRow(row, _db)).toList();
   }

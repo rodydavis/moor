@@ -1,3 +1,5 @@
+import 'dart:async';
+
 @TestOn('!browser') // todo: Figure out why this doesn't run in js
 
 // ignore_for_file: lines_longer_than_80_chars
@@ -35,12 +37,71 @@ void main() {
     db = TodoDb.connect(connection);
   });
 
-  test("transactions don't allow creating streams", () {
-    expect(() async {
+  test('streams in transactions are isolated and scoped', () async {
+    // create a database without mocked stream queries
+    db = TodoDb(MockExecutor());
+
+    Stream<int> stream;
+
+    final didSetUpStream = Completer<void>();
+    final makeUpdate = Completer<void>();
+    final complete = Completer<void>();
+
+    final transaction = db.transaction(() async {
+      stream = db
+          .customSelect(
+            'SELECT _mocked_',
+            readsFrom: {db.users},
+          )
+          .map((r) => r.readInt('_mocked_'))
+          .watchSingle();
+      didSetUpStream.complete();
+
+      await makeUpdate.future;
+      db.markTablesUpdated({db.users});
+
+      await complete.future;
+    });
+
+    final emittedValues = <dynamic>[];
+    var didComplete = false;
+
+    // wait for the transaction to setup the stream
+    await didSetUpStream.future;
+    stream.listen(emittedValues.add, onDone: () => didComplete = true);
+
+    // Stream should emit initial select
+    await pumpEventQueue();
+    expect(emittedValues, hasLength(1));
+
+    // update tables inside the transaction -> stream should emit another value
+    makeUpdate.complete();
+    await pumpEventQueue();
+    expect(emittedValues, hasLength(2));
+
+    // update tables outside of the transaction -> stream should NOT update
+    db.markTablesUpdated({db.users});
+    await pumpEventQueue();
+    expect(emittedValues, hasLength(2));
+
+    complete.complete();
+    await transaction;
+    expect(didComplete, isTrue, reason: 'Stream must complete');
+  });
+
+  test('stream queries terminate on exceptional transaction', () async {
+    Stream stream;
+
+    try {
       await db.transaction(() async {
-        db.select(db.users).watch();
+        stream = db.select(db.users).watch();
+        throw Exception();
       });
-    }, throwsStateError);
+    } on Exception {
+      // ignore
+    }
+
+    expect(stream, emitsDone);
   });
 
   test('nested transactions use the outer transaction', () async {
@@ -90,17 +151,20 @@ void main() {
 
       // Even though we just wrote to users, this only happened inside the
       // transaction, so the top level stream queries should not be updated.
-      verifyNever(streamQueries.handleTableUpdates(any));
+      verifyZeroInteractions(streamQueries);
     });
 
     // After the transaction completes, the queries should be updated
-    verify(streamQueries.handleTableUpdates({db.users})).called(1);
+    verify(
+      streamQueries.handleTableUpdates(
+          {TableUpdate.onTable(db.users, kind: UpdateKind.update)}),
+    ).called(1);
     verify(executor.transactions.send());
   });
 
   test('the database is opened before starting a transaction', () async {
     await db.transaction(() async {
-      verify(executor.doWhenOpened(any));
+      verify(executor.ensureOpen(db));
     });
   });
 

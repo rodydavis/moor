@@ -1,11 +1,12 @@
 ---
-title: Dart VM (Desktop support)
+title: moor ffi (Desktop support)
 description: Run moor on both mobile and desktop
 ---
 
-## Supported versions
+## Supported platforms
 
-At the moment, `moor_ffi` supports iOS, macOS and Android out of the box. Most Linux
+The `moor/ffi.dart` library uses the `sqlite3` package to send queries.
+At the moment, that package supports iOS, macOS and Android out of the box. Most Linux
 Distros have sqlite available as a shared library, those are supported as well. 
 
 If you're shipping apps for Windows and Linux, it is recommended that you bundle a
@@ -15,14 +16,14 @@ support your setup by running this code before opening the database:
 ```dart
 import 'dart:ffi';
 import 'dart:io';
-import 'package:moor_ffi/database.dart';
-import 'package:moor_ffi/open_helper.dart';
+import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite3/open.dart';
 
 void main() {
   open.overrideFor(OperatingSystem.linux, _openOnLinux);
 
-  final db = Database.memory();
-  db.close();
+  final db = sqlite3.openInMemory();
+  db.dispose();
 }
 
 DynamicLibrary _openOnLinux() {
@@ -34,27 +35,24 @@ DynamicLibrary _openOnLinux() {
 
 ```
 
-## Migrating from moor_flutter to moor_ffi
-
-If you're not running into a limitation that forces you to use `moor_ffi`, be aware
-that staying on `moor_flutter` is a more stable solution at the moment.
+## Migrating from moor_flutter to moor ffi
 
 First, adapt your `pubspec.yaml`: You can remove the `moor_flutter` dependency and instead
-add both the `moor` and `moor_ffi` dependencies:
+add both the `moor` and `sqlite3_flutter_libs` dependencies:
 ```yaml
 dependencies:
- moor: ^2.0.0
- moor_ffi: ^0.2.0
+ moor: ^3.0.0
+ sqlite3_flutter_libs:
  sqflite: ^1.1.7 # Still used to obtain the database location
 dev_dependencies:
- moor_generator: ^2.0.0
+ moor_generator: ^3.0.0
 ```
 
 Adapt your imports:
 
   - In the file where you created a `FlutterQueryExecutor`, replace the `moor_flutter` import
-    with `package:moor_ffi/moor_ffi.dart`.
-  - In all other files where you might have import `moor_flutter`, just import `package:moor/moor.dart`.
+    with `package:moor/ffi.dart`.
+  - In all other files where you might have imported `moor_flutter`, just import `package:moor/moor.dart`.
   
 Replace the executor. This code:
 ```dart
@@ -66,9 +64,9 @@ import 'package:sqflite/sqflite.dart' show getDatabasesPath;
 import 'package:path/path.dart' as p;
 
 LazyDatabase(() async {
-   final dbFolder = await getDatabasesPath();
-   final file = File(j.join(dbFolder, 'db.sqlite'));
-   return VmDatabase(file);
+  final dbFolder = await getDatabasesPath();
+  final file = File(j.join(dbFolder, 'db.sqlite'));
+  return VmDatabase(file);
 })
 ```
 
@@ -78,10 +76,32 @@ Please be aware that `FlutterQueryExecutor.inDatabaseFolder` might yield a diffe
 `path_provider` on Android. This can cause data loss if you've already shipped a version using
 `moor_flutter`. In that case, using `getDatabasePath` from sqflite is the suggested solution.
 
+## Using moor ffi with an existing database
+
+If your existing sqlite database is stored as a file, you can just use `VmDatabase(thatFile)` - no further
+changes are required.
+
+If you want to load databases from assets or any other source, you can use a `LazyDatabase`.
+It allows you to perform some async work before opening the database:
+
+```dart
+// before
+VmDatabase(File('...'));
+
+// after
+LazyDatabase(() async {
+  final file = File('...');
+  if (!await file.exists()) {
+    // copy the file from an asset, or network, or any other source
+  }
+  return VmDatabase(file);
+});
+```
+
 ## Used compile options on Android
 
 Note: Android is the only platform where moor_ffi will compile sqlite. The sqlite3 library from the system
-is used on all other platforms. The choosen options help reduce binary size by removing features not used by
+is used on all other platforms. The chosen options help reduce binary size by removing features not used by
 moor. Important options are marked in bold.
 
 - We use the `-O3` performance option
@@ -102,3 +122,44 @@ moor. Important options are marked in bold.
 - `SQLITE_ENABLE_JSON1`: Enable the [json1](https://www.sqlite.org/json1.html) extension for json support in sql query.
 
 For more details on sqlite compile options, see [their documentation](https://www.sqlite.org/compile.html).
+
+## Moor-only functions
+
+`moor_ffi` includes additional sql functions not available in standard sqlite:
+
+- `pow(base, exponent)` and `power(base, exponent)`: This function takes two numerical arguments and returns `base` raised to the power of `exponent`.
+  If `base` or `exponent` aren't numerical values or null, this function will return `null`. This function behaves exactly like `pow` in `dart:math`.
+- `sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`: These functions take a single argument. If that argument is null or not a numerical value,
+  returns null. Otherwise, returns the result of applying the matching function in `dart:math`.
+- `regexp`: Wraps the Dart `RegExp` apis, so that `foo REGEXP bar` is equivalent to `RegExp(bar).hasMatch(foo)`. Note that we have to create a new
+  `RegExp` instance for each `regexp` sql call, which can impact performance on large queries.
+
+Note that `NaN`, `-infinity` or `+infinity` are represented as `NULL` in sql.
+
+When enabling the `moor_ffi` module in your [build options]({{< relref "../Advanced Features/builder_options.md#available-extensions" >}}),
+the generator will allow you to use those functions in moor files or compiled queries. 
+
+To use those methods from Dart, you need to import `package:moor/extensions/moor_ffi.dart`.
+You can then use the additional functions like this:
+```dart
+import 'package:moor/moor.dart';
+// those methods are hidden behind another import because they're only available on moor_ffi
+import 'package:moor/extensions/moor_ffi.dart';
+
+class Coordinates extends Table {
+  RealColumn get x => real()();
+  RealColumn get y => real()();
+}
+
+// Can now be used like this:
+Future<List<Coordinate>> findNearby(Coordinate center, int radius) {
+  return (select(coordinates)..where((other) {
+    // find coordinates where sqrt((center - x)² + (center.y - y)²) < radius
+    final distanceSquared = sqlPow(center.x - row.x, 2) + sqlPow(center.y - row.y, 2);
+    return sqlSqrt(distanceSquared).isLessThanValue(radius);
+  })).get();
+}
+```
+
+Aller the other functions are available under a similar name (`sqlSin`, `sqlCos`, `sqlAtan` and so on).
+They have that `sql` prefix to avoid clashes with `dart:math`.

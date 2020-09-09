@@ -11,7 +11,7 @@ class MoorParser {
 
   MoorParser(this.step);
 
-  Future<ParsedMoorFile> parseAndAnalyze() {
+  Future<ParsedMoorFile> parseAndAnalyze() async {
     final engine = step.task.session.spawnEngine();
     final result = engine.parseMoorFile(step.content);
     final parsedFile = result.rootNode as MoorFile;
@@ -20,16 +20,36 @@ class MoorParser {
     final queryDeclarations = <DeclaredMoorQuery>[];
     final importStatements = <ImportStatement>[];
 
+    final createdEntities = <MoorSchemaEntity>[];
+
     for (final parsedStmt in parsedFile.statements) {
       if (parsedStmt is ImportStatement) {
         final importStmt = parsedStmt;
-        step.inlineDartResolver.importStatements.add(importStmt.importedFile);
         importStatements.add(importStmt);
       } else if (parsedStmt is TableInducingStatement) {
-        createdReaders.add(CreateTableReader(parsedStmt, step));
+        createdReaders
+            .add(CreateTableReader(parsedStmt, step, importStatements));
+      } else if (parsedStmt is CreateTriggerStatement) {
+        // the table will be resolved in the analysis step
+        createdEntities.add(MoorTrigger.fromMoor(parsedStmt, step.file));
+      } else if (parsedStmt is CreateIndexStatement) {
+        createdEntities.add(MoorIndex.fromMoor(parsedStmt, step.file));
       } else if (parsedStmt is DeclaredStatement) {
         if (parsedStmt.isRegularQuery) {
           queryDeclarations.add(DeclaredMoorQuery.fromStatement(parsedStmt));
+        } else {
+          final identifier =
+              parsedStmt.identifier as SpecialStatementIdentifier;
+          if (identifier.specialName != 'create') {
+            step.reportError(
+              ErrorInMoorFile(
+                span: identifier.nameToken.span,
+                message: 'Only @create is supported at the moment.',
+              ),
+            );
+          } else {
+            createdEntities.add(SpecialQuery.fromMoor(parsedStmt, step.file));
+          }
         }
       }
     }
@@ -42,25 +62,23 @@ class MoorParser {
       ));
     }
 
-    final createdTables = <MoorTable>[];
-    final tableDeclarations = <TableInducingStatement, MoorTable>{};
     for (final reader in createdReaders) {
-      final table = reader.extractTable(step.mapper);
-      createdTables.add(table);
-      tableDeclarations[reader.stmt] = table;
+      final moorTable = await reader.extractTable(step.mapper);
+      if (moorTable != null) {
+        createdEntities.add(moorTable);
+      }
     }
 
     final analyzedFile = ParsedMoorFile(
       result,
-      declaredTables: createdTables,
+      declaredEntities: createdEntities,
       queries: queryDeclarations,
       imports: importStatements,
-      tableDeclarations: tableDeclarations,
     );
     for (final decl in queryDeclarations) {
       decl.file = analyzedFile;
     }
 
-    return Future.value(analyzedFile);
+    return analyzedFile;
   }
 }

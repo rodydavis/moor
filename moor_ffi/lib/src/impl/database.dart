@@ -1,25 +1,33 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
+import 'package:meta/meta.dart';
 import 'package:moor_ffi/database.dart';
 import 'package:moor_ffi/src/api/result.dart';
 import 'package:moor_ffi/src/bindings/constants.dart';
+import 'package:moor_ffi/src/bindings/signatures.dart';
 import 'package:moor_ffi/src/bindings/types.dart' as types;
 import 'package:moor_ffi/src/bindings/bindings.dart';
 import 'package:moor_ffi/src/ffi/blob.dart';
 import 'package:moor_ffi/src/ffi/utils.dart';
 
 part 'errors.dart';
+part 'moor_functions.dart';
 part 'prepared_statement.dart';
 
 const _openingFlags = Flags.SQLITE_OPEN_READWRITE | Flags.SQLITE_OPEN_CREATE;
+const _readOnlyOpeningFlags = Flags.SQLITE_OPEN_READONLY;
 
 /// A opened sqlite database.
 class Database {
   final Pointer<types.Database> _db;
   final List<PreparedStatement> _preparedStmt = [];
+  final List<Pointer<Void>> _furtherAllocations = [];
+
   bool _isClosed = false;
 
   Database._(this._db);
@@ -32,18 +40,25 @@ class Database {
   factory Database.memory() => Database.open(':memory:');
 
   /// Opens an sqlite3 database from a filename.
-  factory Database.open(String fileName) {
+  ///
+  /// Unless [readOnly] is set to true, database is opened in read/write mode.
+  factory Database.open(String fileName, {bool readOnly = false}) {
     final dbOut = allocate<Pointer<types.Database>>();
     final pathC = CBlob.allocateString(fileName);
+    final openingFlags =
+        (readOnly ?? false) ? _readOnlyOpeningFlags : _openingFlags;
 
     final resultCode =
-        bindings.sqlite3_open_v2(pathC, dbOut, _openingFlags, nullPtr());
+        bindings.sqlite3_open_v2(pathC, dbOut, openingFlags, nullPtr());
     final dbPointer = dbOut.value;
 
     dbOut.free();
     pathC.free();
 
     if (resultCode == Errors.SQLITE_OK) {
+      // Turn extended result code to on.
+      bindings.sqlite3_extended_result_codes(dbPointer, 1);
+
       return Database._(dbPointer);
     } else {
       bindings.sqlite3_close_v2(dbPointer);
@@ -61,6 +76,8 @@ class Database {
   /// an error occurs while closing the database, an exception will be thrown.
   /// The allocated memory will be freed either way.
   void close() {
+    if (_isClosed) return;
+
     // close all prepared statements first
     _isClosed = true;
     for (final stmt in _preparedStmt) {
@@ -73,6 +90,10 @@ class Database {
       exception = SqliteException._fromErrorCode(_db, code);
     }
     _isClosed = true;
+
+    for (final additional in _furtherAllocations) {
+      additional.free();
+    }
 
     // we don't need to deallocate the _db pointer, sqlite takes care of that
 
@@ -97,7 +118,6 @@ class Database {
 
     final result =
         bindings.sqlite3_exec(_db, sqlPtr, nullPtr(), nullPtr(), errorOut);
-
     sqlPtr.free();
 
     final errorPtr = errorOut.value;
@@ -111,7 +131,7 @@ class Database {
     }
 
     if (result != Errors.SQLITE_OK) {
-      throw SqliteException(errorMsg);
+      throw SqliteException(result, errorMsg);
     }
   }
 
@@ -139,6 +159,86 @@ class Database {
     _preparedStmt.add(prepared);
 
     return prepared;
+  }
+
+  /// Registers a custom sqlite function by its [name].
+  ///
+  /// The function must take [argumentCount] arguments, and it may not take more
+  /// than 127 arguments. If it can take a variable amount of arguments,
+  /// [argumentCount] should be set to `-1`.
+  ///
+  /// When the output of the function depends solely on its input,
+  /// [isDeterministic] should be set. This allows sqlite's query planer to make
+  /// further optimizations.
+  /// When [directOnly] is set (defaults to true), the function can't be used
+  /// outside a query (e.g. in triggers, views, check constraints, index
+  /// expressions, etc.). Unless necessary, this should be enabled for security
+  /// purposes. See the discussion at the link for more details
+  /// The length of the utf8 encoding of [name] must not exceed 255 bytes.
+  ///
+  /// See also:
+  ///  - https://sqlite.org/c3ref/create_function.html
+  @visibleForTesting
+  void createFunction(
+    String name,
+    int argumentCount,
+    Pointer<NativeFunction<sqlite3_function_handler>> implementation, {
+    bool isDeterministic = false,
+    bool directOnly = true,
+  }) {
+    _ensureOpen();
+    final encodedName = Uint8List.fromList(utf8.encode(name));
+    // length of encoded name is limited to 255 bytes in utf8, excluding the 0
+    // terminator
+    if (encodedName.length > 255) {
+      throw ArgumentError.value(
+          name, 'name', 'Must be at most 255 bytes when encoded as utf8');
+    }
+
+    // argument length should be between -1 and 127
+    if (argumentCount < -1 || argumentCount > 127) {
+      throw ArgumentError.value(
+          argumentCount, 'argumentCount', 'Should be between -1 and 127');
+    }
+
+    final namePtr = CBlob.allocate(encodedName, paddingAtEnd: 1);
+    _furtherAllocations.add(namePtr.cast());
+
+    var textFlag = TextEncodings.SQLITE_UTF8;
+
+    if (isDeterministic) textFlag |= FunctionFlags.SQLITE_DETERMINISTIC;
+    if (directOnly) textFlag |= FunctionFlags.SQLITE_DIRECTONLY;
+
+    final result = bindings.sqlite3_create_function_v2(
+      _db,
+      namePtr.cast(),
+      argumentCount,
+      textFlag,
+      nullPtr(), // *pApp, we don't use that
+      implementation,
+      nullPtr(), // *xStep, null for regular functions
+      nullPtr(), // *xFinal, null for regular functions
+      nullPtr(), // finalizer for *pApp,
+    );
+
+    if (result != Errors.SQLITE_OK) {
+      throw SqliteException._fromErrorCode(_db, result);
+    }
+  }
+
+  /// Enables non-standard functions that ship with `moor_ffi`.
+  ///
+  /// After calling [enableMoorFfiFunctions], the following functions can
+  /// be used in sql: `power`, `pow`, `sqrt`, `sin`, `cos`, `tan`, `asin`,
+  /// `acos`, `atan` and `regexp`.
+  ///
+  /// At the moment, these functions are only available in statements. In
+  /// particular, they're not available in triggers, check constraints, index
+  /// expressions.
+  ///
+  /// This should only be called once per database.
+  void enableMoorFfiFunctions() {
+    _registerOn(this);
   }
 
   /// Get the application defined version of this database.

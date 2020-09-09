@@ -3,7 +3,7 @@ part of '../ast.dart';
 /// https://www.sqlite.org/syntax/column-def.html
 class ColumnDefinition extends AstNode {
   final String columnName;
-  final String typeName;
+  final String /*?*/ typeName;
   final List<ColumnConstraint> constraints;
 
   /// The tokens there were involved in defining the type of this column.
@@ -16,7 +16,14 @@ class ColumnDefinition extends AstNode {
       this.constraints = const []});
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitColumnDefinition(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitColumnDefinition(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    transformer.transformChildren(constraints, this, arg);
+  }
 
   @override
   Iterable<AstNode> get childNodes => constraints;
@@ -43,7 +50,9 @@ abstract class ColumnConstraint extends AstNode {
   ColumnConstraint(this.name);
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitColumnConstraint(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitColumnConstraint(this, arg);
+  }
 
   T when<T>({
     T Function(NotNull) notNull,
@@ -99,6 +108,9 @@ class NotNull extends ColumnConstraint {
   final Iterable<AstNode> childNodes = const [];
 
   @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {}
+
+  @override
   bool _equalToConstraint(NotNull other) => onConflict == other.onConflict;
 }
 
@@ -113,6 +125,9 @@ class PrimaryKeyColumn extends ColumnConstraint {
 
   @override
   Iterable<AstNode> get childNodes => const [];
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {}
 
   @override
   bool _equalToConstraint(PrimaryKeyColumn other) {
@@ -131,13 +146,16 @@ class UniqueColumn extends ColumnConstraint {
   Iterable<AstNode> get childNodes => const [];
 
   @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {}
+
+  @override
   bool _equalToConstraint(UniqueColumn other) {
     return other.onConflict == onConflict;
   }
 }
 
 class CheckColumn extends ColumnConstraint {
-  final Expression expression;
+  Expression expression;
 
   CheckColumn(String name, this.expression) : super(name);
 
@@ -145,16 +163,26 @@ class CheckColumn extends ColumnConstraint {
   Iterable<AstNode> get childNodes => [expression];
 
   @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    expression = transformer.transformChild(expression, this, arg);
+  }
+
+  @override
   bool _equalToConstraint(CheckColumn other) => true;
 }
 
 class Default extends ColumnConstraint {
-  final Expression expression;
+  Expression expression;
 
   Default(String name, this.expression) : super(name);
 
   @override
   Iterable<AstNode> get childNodes => [expression];
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    expression = transformer.transformChild(expression, this, arg);
+  }
 
   @override
   bool _equalToConstraint(Default other) => true;
@@ -169,11 +197,14 @@ class CollateConstraint extends ColumnConstraint {
   final Iterable<AstNode> childNodes = const [];
 
   @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {}
+
+  @override
   bool _equalToConstraint(CollateConstraint other) => true;
 }
 
 class ForeignKeyColumnConstraint extends ColumnConstraint {
-  final ForeignKeyClause clause;
+  ForeignKeyClause clause;
 
   ForeignKeyColumnConstraint(String name, this.clause) : super(name);
 
@@ -182,6 +213,11 @@ class ForeignKeyColumnConstraint extends ColumnConstraint {
 
   @override
   Iterable<AstNode> get childNodes => [clause];
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    clause = transformer.transformChild(clause, this, arg);
+  }
 }
 
 /// A `MAPPED BY` constraint, which is only parsed for moor files. It can be
@@ -199,6 +235,9 @@ class MappedBy extends ColumnConstraint {
 
   @override
   final Iterable<AstNode> childNodes = const [];
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {}
 }
 
 /// A `JSON KEY xyz` constraint which, which is only parsed for moor files.
@@ -218,4 +257,7 @@ class JsonKey extends ColumnConstraint {
   bool _equalToConstraint(JsonKey other) {
     return other.jsonKey == jsonKey;
   }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {}
 }

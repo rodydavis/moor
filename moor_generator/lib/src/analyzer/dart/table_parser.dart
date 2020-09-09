@@ -10,16 +10,25 @@ class TableParser {
     final sqlName = await _parseTableName(element);
     if (sqlName == null) return null;
 
-    final columns = await _parseColumns(element);
+    final columns = (await _parseColumns(element)).toList();
+
+    final primaryKey = await _readPrimaryKey(element, columns);
 
     final table = MoorTable(
       fromClass: element,
       columns: columns,
       sqlName: escapeIfNeeded(sqlName),
       dartTypeName: _readDartTypeName(element),
-      primaryKey: await _readPrimaryKey(element, columns),
+      primaryKey: primaryKey,
       declaration: DartTableDeclaration(element, base.step.file),
     );
+
+    if (primaryKey != null && columns.any((element) => element.hasAI)) {
+      base.step.errors.report(ErrorInDartCode(
+        message: "Tables can't override primaryKey and use autoIncrement()",
+        affectedElement: element,
+      ));
+    }
 
     var index = 0;
     for (final converter in table.converters) {
@@ -33,7 +42,8 @@ class TableParser {
 
   String _readDartTypeName(ClassElement element) {
     final nameAnnotation = element.metadata.singleWhere(
-        (e) => e.computeConstantValue().type.name == 'DataClassName',
+        (e) =>
+            e.computeConstantValue().type.getDisplayString() == 'DataClassName',
         orElse: () => null);
 
     if (nameAnnotation == null) {
@@ -73,8 +83,15 @@ class TableParser {
 
   Future<Set<MoorColumn>> _readPrimaryKey(
       ClassElement element, List<MoorColumn> columns) async {
-    final primaryKeyGetter = element.getGetter('primaryKey');
-    if (primaryKeyGetter == null) {
+    final primaryKeyGetter =
+        element.lookUpGetter('primaryKey', element.library);
+    final parentOfResolved = primaryKeyGetter.enclosingElement;
+
+    if (parentOfResolved is ClassElement &&
+        parentOfResolved.name == 'Table' &&
+        isFromMoor(parentOfResolved.thisType)) {
+      // resolved primaryKey is from the Table dsl superclass. That means there
+      // is no primary key
       return null;
     }
 
@@ -109,7 +126,7 @@ class TableParser {
     return parsedPrimaryKey;
   }
 
-  Future<List<MoorColumn>> _parseColumns(ClassElement element) {
+  Future<Iterable<MoorColumn>> _parseColumns(ClassElement element) async {
     final columnNames = element.allSupertypes
         .map((t) => t.element)
         .followedBy([element])
@@ -127,11 +144,13 @@ class TableParser {
       return getter.variable;
     });
 
-    return Future.wait(fields.map((field) async {
+    final results = await Future.wait(fields.map((field) async {
       final resolved = await base.loadElementDeclaration(field.getter);
       final node = resolved.node as MethodDeclaration;
 
       return await base.parseColumn(node, field.getter);
     }));
+
+    return results.where((c) => c != null);
   }
 }

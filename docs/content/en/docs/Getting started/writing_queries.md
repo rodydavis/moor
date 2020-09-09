@@ -27,7 +27,7 @@ class MyDatabase extends _$MyDatabase {
 
   // watches all todo entries in a given category. The stream will automatically
   // emit new items whenever the underlying data changes.
-  Stream<List<TodoEntry>> watchEntriesInCategory(Category c) {
+  Stream<List<Todo>> watchEntriesInCategory(Category c) {
     return (select(todos)..where((t) => t.category.equals(c.id))).watch();
   }
 }
@@ -44,14 +44,24 @@ should map the given table to an `Expression` of boolean. A common way to create
 is by using `equals` on expressions. Integer columns can also be compared with `isBiggerThan`
 and `isSmallerThan`. You can compose expressions using `a & b, a | b` and `a.not()`. For more
 details on expressions, see [this guide]({{< relref "expressions.md" >}}).
+
 ### Limit
 You can limit the amount of results returned by calling `limit` on queries. The method accepts
 the amount of rows to return and an optional offset.
+
+```dart
+Future<List<Todo>> limitTodos(int limit, {int offset}) {
+  return (select(todos)..limit(limit, offset: offset)).get();
+}
+```
+
 ### Ordering
 You can use the `orderBy` method on the select statement. It expects a list of functions that extract the individual
-ordering terms from the table.
+ordering terms from the table. You can use any expression as an ordering term - for more details, see
+[this guide]({{< relref "expressions.md" >}}).
+
 ```dart
-Future<List<TodoEntry>> sortEntriesAlphabetically() {
+Future<List<Todo>> sortEntriesAlphabetically() {
   return (select(todos)..orderBy([(t) => OrderingTerm(expression: t.title)])).get();
 }
 ```
@@ -62,7 +72,7 @@ You can also reverse the order by setting the `mode` property of the `OrderingTe
 If you know a query is never going to return more than one row, wrapping the result in a `List`
 can be tedious. Moor lets you work around that with `getSingle` and `watchSingle`:
 ```dart
-Stream<TodoEntry> entryById(int id) {
+Stream<Todo> entryById(int id) {
   return (select(todos)..where((t) => t.id.equals(id))).watchSingle();
 }
 ```
@@ -70,6 +80,22 @@ If an entry with the provided id exists, it will be sent to the stream. Otherwis
 `null` will be added to stream. If a query used with `watchSingle` ever returns
 more than one entry (which is impossible in this case), an error will be added
 instead.
+
+### Mapping
+
+Before calling `watch` or `get` (or the single variants), you can use `map` to transform
+the result. 
+```dart
+Stream<List<String>> contentWithLongTitles() {
+  final query = select(todos)
+    ..where((t) => t.title.length.isBiggerOrEqualValue(16));
+
+  return query
+    .map((row) => row.content)
+    .watch();
+}
+```
+
 
 If you need more complex queries with joins or custom columns, see [this site]({{< relref "../Advanced Features/joins.md" >}}).
 
@@ -89,7 +115,7 @@ Future moveImportantTasksIntoCategory(Category target) {
   );
 }
 
-Future update(TodoEntry entry) {
+Future update(Todo entry) {
   // using replace will update all fields from the entry that are not marked as a primary key.
   // it will also make sure that only the entry with the same primary key will be updated.
   // Here, this means that the row that has the same id as entry will be updated to reflect
@@ -108,7 +134,7 @@ the statement will affect all rows in the table!
 
 {{% alert title="Entries, companions - why do we need all of this?"  %}}
 You might have noticed that we used a `TodosCompanion` for the first update instead of
-just passing a `TodoEntry`. Moor generates the `TodoEntry` class (also called _data
+just passing a `Todo`. Moor generates the `Todo` class (also called _data
 class_ for the table) to hold a __full__ row with all its data. For _partial_ data,
 prefer to use companions. In the example above, we only set the the `category` column,
 so we used a companion. 
@@ -127,13 +153,13 @@ You can very easily insert any valid object into tables. As some values can be a
 companion version.
 ```dart
 // returns the generated id
-Future<int> addTodoEntry(TodosCompanion entry) {
+Future<int> addTodo(TodosCompanion entry) {
   return into(todos).insert(entry);
 }
 ```
 All row classes generated will have a constructor that can be used to create objects:
 ```dart
-addTodoEntry(
+addTodo(
   TodosCompanion(
     title: Value('Important task'),
     content: Value('Refactor persistence code'),
@@ -151,7 +177,7 @@ Future<void> insertMultipleEntries() async{
   await batch((batch) {
     // functions in a batch don't have to be awaited - just
     // await the whole batch afterwards.
-    batch.insertAll([
+    batch.insertAll(todos, [
       TodosCompanion.insert(
         title: 'First entry',
         content: 'My content',
@@ -159,9 +185,77 @@ Future<void> insertMultipleEntries() async{
       TodosCompanion.insert(
         title: 'Another entry',
         content: 'More content',
+        // columns that aren't required for inserts are still wrapped in a Value:
+        category: Value(3),
       ),
       // ...
     ]);
   });
 }
 ```
+
+### Upserts
+
+Upserts are a feature from newer sqlite3 versions that allows an insert to 
+behave like an update if a conflicting row already exists.
+
+This allows us to create or override an existing row when its primary key is
+part of its data:
+
+```dart
+class Users extends Table {
+  TextColumn get email => text()();
+  TextColumn get name => text()();
+
+  @override
+  Set<Column> get primaryKey => {email};
+}
+
+Future<void> createOrUpdateUser(User user) {
+  return into(users).insertOnConflictUpdate(user);
+}
+```
+
+When calling `createOrUpdateUser()` with an email address that already exists, 
+that user's name will be updated. Otherwise, a new user will be inserted into
+the database.
+
+Inserts can also be used with more advanced queries. For instance, let's say 
+we're building a dictionary and want to keep track of how many times we 
+encountered a word. A table for that might look like
+
+```dart
+class Words extends Table {
+  TextColumn get word => text()();
+  IntColumn get usages => integer().default(const Constant(1))();
+
+  @override
+  Set<Column> get primaryKey => {word};
+}
+```
+
+By using a custom upserts, we can insert a new word or increment its `usages`
+counter if it already exists:
+
+```dart
+Future<void> trackWord(String word) {
+  return into(words).insert(
+    WordsCompanion.insert(word: word),
+    onConflict: DoUpdate((old) => WordsCompanion.custom(usages: old.usages + Constant(1))),
+  );
+}
+```
+
+{{% alert title="Unique constraints and conflict targets" %}}
+> Both `insertOnConflictUpdate` and `onConflict: DoUpdate` use an `DO UPDATE`
+  upsert in sql. This requires us to provide a so-called "conflict target", a
+  set of columns to check for uniqueness violations. By default, moor will use
+  the table's primary key as conflict target. That works in most cases, but if
+  you have custom `UNIQUE` constraints on some columns, you'll need to use
+  the `target` parameter on `DoUpdate` in Dart to include those columns.
+{{% /alert %}}
+
+Note that this requires a fairly recent sqlite3 version (3.24.0) that might not
+be available on older Android devices when using `moor_flutter`. `moor_ffi`
+includes the latest sqlite on Android, so consider using it if you want to
+support upserts.

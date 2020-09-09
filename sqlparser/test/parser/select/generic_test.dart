@@ -32,22 +32,26 @@ final Map<String, AstNode> testCases = {
         expression: SubQuery(
           select: SelectStatement(
             columns: [StarResultColumn(null)],
-            from: [TableReference('table2', null)],
+            from: TableReference('table2', null),
           ),
         ),
       ),
     ],
-    from: [
-      TableReference('tbl', null),
-    ],
+    from: TableReference('tbl', null),
   ),
   'SELECT * FROM tbl WHERE id IN ()': SelectStatement(
     columns: [StarResultColumn(null)],
-    from: [TableReference('tbl', null)],
+    from: TableReference('tbl', null),
     where: InExpression(
       left: Reference(columnName: 'id'),
       inside: Tuple(expressions: []),
     ),
+  ),
+  'SELECT rowid FROM tbl': SelectStatement(
+    columns: [
+      ExpressionResultColumn(expression: Reference(columnName: 'rowid')),
+    ],
+    from: TableReference('tbl'),
   ),
 };
 

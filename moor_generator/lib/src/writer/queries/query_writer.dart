@@ -28,9 +28,7 @@ class QueryWriter {
   bool get _newSelectableMode =>
       query.declaredInMoorFile || options.compactQueryMethods;
 
-  final Set<String> _writtenMappingMethods;
-
-  QueryWriter(this.query, this.scope, this._writtenMappingMethods) {
+  QueryWriter(this.query, this.scope) {
     _buffer = scope.leaf();
   }
 
@@ -64,20 +62,12 @@ class QueryWriter {
   }
 
   void _writeSelect() {
-    if (!_select.resultSet.singleColumn) {
-      _writeMapping();
-    }
-
     _writeSelectStatementCreator();
 
     if (!_newSelectableMode) {
       _writeOneTimeReader();
       _writeStreamReader();
     }
-  }
-
-  String _nameOfMappingMethod() {
-    return '_rowTo${_select.resultClassName}';
   }
 
   String _nameOfCreationMethod() {
@@ -88,34 +78,65 @@ class QueryWriter {
     }
   }
 
-  /// Writes a mapping method that turns a "QueryRow" into the desired custom
-  /// return type.
-  void _writeMapping() {
-    // avoid writing mapping methods twice if the same result class is written
-    // more than once.
-    if (!_writtenMappingMethods.contains(_nameOfMappingMethod())) {
-      _buffer
-        ..write('${_select.resultClassName} ${_nameOfMappingMethod()}')
-        ..write('(QueryRow row) {\n');
-
+  /// Writes the function literal that turns a "QueryRow" into the desired
+  /// custom return type of a select statement.
+  void _writeMappingLambda() {
+    if (_select.resultSet.singleColumn) {
+      final column = _select.resultSet.columns.single;
+      _buffer.write('(QueryRow row) => ${readingCode(column)}');
+    } else if (_select.resultSet.matchingTable != null) {
       // note that, even if the result set has a matching table, we can't just
       // use the mapFromRow() function of that table - the column names might
       // be different!
-      _buffer.write('return ${_select.resultClassName}(');
+      final match = _select.resultSet.matchingTable;
+      final table = match.table;
+
+      if (match.effectivelyNoAlias) {
+        _buffer.write('${table.dbGetterName}.mapFromRow');
+      } else {
+        _buffer
+          ..write('(QueryRow row) => ')
+          ..write('${table.dbGetterName}.mapFromRowWithAlias(row, const {');
+
+        for (final alias in match.aliasToColumn.entries) {
+          _buffer
+            ..write(asDartLiteral(alias.key))
+            ..write(': ')
+            ..write(asDartLiteral(alias.value.name.name))
+            ..write(', ');
+        }
+
+        _buffer.write('})');
+      }
+    } else {
+      _buffer.write('(QueryRow row) { return ${_select.resultClassName}(');
+
+      if (options.rawResultSetData) {
+        _buffer.write('row: row,\n');
+      }
+
       for (final column in _select.resultSet.columns) {
         final fieldName = _select.resultSet.dartNameFor(column);
-        _buffer.write('$fieldName: ${_readingCode(column)},');
+        _buffer.write('$fieldName: ${readingCode(column)},');
       }
-      _buffer.write(');\n}\n');
+      for (final nested in _select.resultSet.nestedResults) {
+        final prefix = _select.resultSet.nestedPrefixFor(nested);
+        if (prefix == null) continue;
 
-      _writtenMappingMethods.add(_nameOfMappingMethod());
+        final fieldName = nested.dartFieldName;
+        final tableGetter = nested.table.dbGetterName;
+
+        _buffer.write('$fieldName: $tableGetter.mapFromRowOrNull(row, '
+            'tablePrefix: ${asDartLiteral(prefix)}),');
+      }
+      _buffer.write(');\n}');
     }
   }
 
   /// Returns Dart code that, given a variable of type `QueryRow` named `row`
   /// in the same scope, reads the [column] from that row and brings it into a
   /// suitable type.
-  String _readingCode(ResultColumn column) {
+  static String readingCode(ResultColumn column) {
     final readMethod = readFromMethods[column.type];
 
     final dartLiteral = asDartLiteral(column.name);
@@ -123,12 +144,17 @@ class QueryWriter {
 
     if (column.converter != null) {
       final converter = column.converter;
-      final infoName = converter.table.tableInfoName;
-      final field = '$infoName.${converter.fieldName}';
-
-      code = '$field.mapToDart($code)';
+      code = '${_converter(converter)}.mapToDart($code)';
     }
     return code;
+  }
+
+  /// Returns code to load an instance of the [converter] at runtime.
+  static String _converter(UsedTypeConverter converter) {
+    final infoName = converter.table.tableInfoName;
+    final field = '$infoName.${converter.fieldName}';
+
+    return field;
   }
 
   /// Writes a method returning a `Selectable<T>`, where `T` is the return type
@@ -142,20 +168,13 @@ class QueryWriter {
     _buffer.write(') {\n');
 
     _writeExpandedDeclarations();
-    _buffer.write('return customSelectQuery(${_queryCode()}, ');
+    _buffer.write('return customSelect(${_queryCode()}, ');
     _writeVariables();
     _buffer.write(', ');
     _writeReadsFrom();
 
     _buffer.write(').map(');
-    // for queries that only return one row, it makes more sense to inline the
-    // mapping code with a lambda
-    if (_select.resultSet.singleColumn) {
-      final column = _select.resultSet.columns.single;
-      _buffer.write('(QueryRow row) => ${_readingCode(column)}');
-    } else {
-      _buffer.write(_nameOfMappingMethod());
-    }
+    _writeMappingLambda();
     _buffer.write(');\n}\n');
   }
 
@@ -204,6 +223,12 @@ class QueryWriter {
     _writeVariables();
     _buffer.write(',');
     _writeUpdates();
+
+    if (_update.isOnlyDelete) {
+      _buffer.write(', updateKind: UpdateKind.delete');
+    } else if (_update.isOnlyUpdate) {
+      _buffer.write(', updateKind: UpdateKind.update');
+    }
 
     _buffer.write(',);\n}\n');
   }
@@ -323,15 +348,33 @@ class QueryWriter {
       first = false;
 
       if (element is FoundVariable) {
-        // for a regular variable: Variable.withInt(x),
-        // for a list of vars: for (var $ in vars) Variable.withInt($),
-        final constructor = createVariable[element.type];
+        // Variables without type converters are written as:
+        // `Variable.withInt(x)`. When there's a type converter, we instead use
+        // `Variable.withInt(typeConverter.mapToSql(x))`.
+        // Finally, if we're dealing with a list, we use a collection for to
+        // write all the variables sequentially.
+        String constructVar(String dartExpr) {
+          final buffer = StringBuffer(createVariable[element.type])..write('(');
+
+          if (element.converter != null) {
+            // Apply the converter
+            buffer
+                .write('${_converter(element.converter)}.mapToSql($dartExpr)');
+          } else {
+            buffer.write(dartExpr);
+          }
+
+          buffer.write(')');
+          return buffer.toString();
+        }
+
         final name = element.dartParameterName;
 
         if (element.isArray) {
-          _buffer.write('for (var \$ in $name) $constructor(\$)');
+          final constructor = constructVar(r'$');
+          _buffer.write('for (var \$ in $name) $constructor');
         } else {
-          _buffer.write('$constructor($name)');
+          _buffer.write('${constructVar(name)}');
         }
       } else if (element is FoundDartPlaceholder) {
         _buffer.write(
@@ -348,11 +391,24 @@ class QueryWriter {
   String _queryCode() {
     // sort variables and placeholders by the order in which they appear
     final toReplace = query.fromContext.root.allDescendants
-        .where((node) => node is Variable || node is DartPlaceholder)
+        .where((node) =>
+            node is Variable ||
+            node is DartPlaceholder ||
+            node is NestedStarResultColumn)
         .toList()
           ..sort(_compareNodes);
 
     final buffer = StringBuffer("'");
+
+    // Index nested results by their syntactic origin for faster lookups later
+    var doubleStarColumnToResolvedTable =
+        const <NestedStarResultColumn, NestedResultTable>{};
+    if (query is SqlSelectQuery) {
+      doubleStarColumnToResolvedTable = {
+        for (final nestedResult in _select.resultSet.nestedResults)
+          nestedResult.from: nestedResult
+      };
+    }
 
     var lastIndex = query.fromContext.root.firstPosition;
 
@@ -381,6 +437,29 @@ class QueryWriter {
 
         replaceNode(rewriteTarget,
             '\${${_placeholderContextName(moorPlaceholder)}.sql}');
+      } else if (rewriteTarget is NestedStarResultColumn) {
+        final result = doubleStarColumnToResolvedTable[rewriteTarget];
+        if (result == null) continue;
+
+        final prefix = _select.resultSet.nestedPrefixFor(result);
+        final table = rewriteTarget.tableName;
+
+        // Convert foo.** to "foo.a" AS "nested_0.a", ... for all columns in foo
+        final expanded = StringBuffer();
+        var isFirst = true;
+
+        for (final column in result.table.columns) {
+          if (isFirst) {
+            isFirst = false;
+          } else {
+            expanded.write(', ');
+          }
+
+          final columnName = column.name.name;
+          expanded.write('"$table"."$columnName" AS "$prefix.$columnName"');
+        }
+
+        replaceNode(rewriteTarget, expanded.toString());
       }
     }
 
@@ -394,12 +473,12 @@ class QueryWriter {
   }
 
   void _writeReadsFrom() {
-    final from = _select.readsFrom.map((t) => t.tableFieldName).join(', ');
+    final from = _select.readsFrom.map((t) => t.dbGetterName).join(', ');
     _buffer..write('readsFrom: {')..write(from)..write('}');
   }
 
   void _writeUpdates() {
-    final from = _update.updates.map((t) => t.tableFieldName).join(', ');
+    final from = _update.updates.map((t) => t.table.dbGetterName).join(', ');
     _buffer..write('updates: {')..write(from)..write('}');
   }
 }

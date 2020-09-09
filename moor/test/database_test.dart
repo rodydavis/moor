@@ -11,14 +11,14 @@ class _FakeDb extends GeneratedDatabase {
   MigrationStrategy get migration {
     return MigrationStrategy(
       onCreate: (m) async {
-        await m.issueCustomQuery('created');
+        await customStatement('created');
       },
       onUpgrade: (m, from, to) async {
-        await m.issueCustomQuery('updated from $from to $to');
+        await customStatement('updated from $from to $to');
       },
       beforeOpen: (details) async {
         // this fake select query is verified via mocks
-        await customSelectQuery(
+        await customSelect(
                 'opened: ${details.versionBefore} to ${details.versionNow}')
             .get();
       },
@@ -45,27 +45,24 @@ void main() {
   group('callbacks', () {
     _FakeDb db;
     MockExecutor executor;
-    MockQueryExecutor queryExecutor;
 
     setUp(() {
       executor = MockExecutor();
-      queryExecutor = MockQueryExecutor();
       db = _FakeDb(SqlTypeSystem.defaultInstance, executor);
     });
 
     test('onCreate', () async {
-      await db.handleDatabaseCreation(executor: queryExecutor);
-      verify(queryExecutor.call('created'));
+      await db.beforeOpen(executor, const OpeningDetails(null, 1));
+      verify(executor.runCustom('created', any));
     });
 
     test('onUpgrade', () async {
-      await db.handleDatabaseVersionChange(
-          executor: queryExecutor, from: 2, to: 3);
-      verify(queryExecutor.call('updated from 2 to 3'));
+      await db.beforeOpen(executor, const OpeningDetails(2, 3));
+      verify(executor.runCustom('updated from 2 to 3', any));
     });
 
     test('beforeOpen', () async {
-      await db.beforeOpenCallback(executor, const OpeningDetails(3, 4));
+      await db.beforeOpen(executor, const OpeningDetails(3, 4));
       verify(executor.runSelect('opened: 3 to 4', []));
     });
   });
@@ -74,7 +71,7 @@ void main() {
     final executor = MockExecutor();
     final db = TodoDb(executor);
 
-    await db.someDao.todosForUser(1);
+    await db.someDao.todosForUser(1).get();
 
     verify(executor.runSelect(argThat(contains('SELECT t.* FROM todos')), [1]));
   });
@@ -86,5 +83,13 @@ void main() {
     await db.close();
 
     verify(executor.close());
+  });
+
+  test('throws when migration fails', () async {
+    final executor = MockExecutor(const OpeningDetails(null, 1));
+    when(executor.runCustom(any, any)).thenAnswer((_) => Future.error('error'));
+
+    final db = TodoDb(executor);
+    expect(db.customSelect('SELECT 1').getSingle(), throwsA('error'));
   });
 }

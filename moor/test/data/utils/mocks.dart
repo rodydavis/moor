@@ -6,13 +6,13 @@ import 'package:moor/src/runtime/executor/stream_queries.dart';
 
 export 'package:mockito/mockito.dart';
 
-typedef _EnsureOpenAction<T> = Future<T> Function(QueryExecutor e);
-
 class MockExecutor extends Mock implements QueryExecutor {
   final MockTransactionExecutor transactions = MockTransactionExecutor();
+  final OpeningDetails openingDetails;
+
   var _opened = false;
 
-  MockExecutor() {
+  MockExecutor([this.openingDetails]) {
     when(runSelect(any, any)).thenAnswer((_) {
       assert(_opened);
       return Future.value([]);
@@ -38,16 +38,16 @@ class MockExecutor extends Mock implements QueryExecutor {
       return transactions;
     });
 
-    when(ensureOpen()).thenAnswer((i) {
-      _opened = true;
-      return Future.value(true);
-    });
+    when(ensureOpen(any)).thenAnswer((i) async {
+      if (!_opened && openingDetails != null) {
+        _opened = true;
+        await (i.positionalArguments.single as QueryExecutorUser)
+            .beforeOpen(this, openingDetails);
+      }
 
-    when(doWhenOpened(any)).thenAnswer((i) {
       _opened = true;
-      final action = i.positionalArguments.single as _EnsureOpenAction;
 
-      return action(this);
+      return true;
     });
 
     when(close()).thenAnswer((_) async {
@@ -62,11 +62,7 @@ class MockTransactionExecutor extends Mock implements TransactionExecutor {
     when(runUpdate(any, any)).thenAnswer((_) => Future.value(0));
     when(runDelete(any, any)).thenAnswer((_) => Future.value(0));
     when(runInsert(any, any)).thenAnswer((_) => Future.value(0));
-    when(doWhenOpened(any)).thenAnswer((i) {
-      final action = i.positionalArguments.single as _EnsureOpenAction;
-
-      return action(this);
-    });
+    when(ensureOpen(any)).thenAnswer((_) => Future.value());
 
     when(send()).thenAnswer((_) => Future.value(null));
     when(rollback()).thenAnswer((_) => Future.value(null));
@@ -74,13 +70,6 @@ class MockTransactionExecutor extends Mock implements TransactionExecutor {
 }
 
 class MockStreamQueries extends Mock implements StreamQueryStore {}
-
-// used so that we can mock the SqlExecutor typedef
-abstract class SqlExecutorAsClass {
-  Future<void> call(String sql, [List<dynamic> args]);
-}
-
-class MockQueryExecutor extends Mock implements SqlExecutorAsClass {}
 
 DatabaseConnection createConnection(QueryExecutor executor,
     [StreamQueryStore streams]) {

@@ -1,17 +1,18 @@
+import 'package:moor_generator/moor_generator.dart';
 import 'package:moor_generator/src/model/sql_query.dart';
 import 'package:moor_generator/src/model/used_type_converter.dart';
 import 'package:moor_generator/src/analyzer/sql_queries/type_mapping.dart';
 import 'package:moor_generator/src/utils/type_converter_hint.dart';
 import 'package:sqlparser/sqlparser.dart' hide ResultColumn;
+import 'package:sqlparser/utils/find_referenced_tables.dart';
 
-import 'affected_tables_visitor.dart';
 import 'lints/linter.dart';
 
 /// Maps an [AnalysisContext] from the sqlparser to a [SqlQuery] from this
 /// generator package by determining its type, return columns, variables and so
 /// on.
 class QueryHandler {
-  final String name;
+  final DeclaredQuery source;
   final AnalysisContext context;
   final TypeMapper mapper;
 
@@ -22,7 +23,9 @@ class QueryHandler {
 
   BaseSelectStatement get _select => context.root as BaseSelectStatement;
 
-  QueryHandler(this.name, this.context, this.mapper);
+  QueryHandler(this.source, this.context, this.mapper);
+
+  String get name => source.name;
 
   SqlQuery handle() {
     _foundElements = mapper.extractElements(context);
@@ -30,7 +33,7 @@ class QueryHandler {
     _verifyNoSkippedIndexes();
     final query = _mapToMoor();
 
-    final linter = Linter(this);
+    final linter = Linter.forHandler(this);
     linter.reportLints();
     query.lints = linter.lints;
 
@@ -53,8 +56,8 @@ class QueryHandler {
 
   UpdatingQuery _handleUpdate() {
     final updatedFinder = UpdatedTablesVisitor();
-    context.root.accept(updatedFinder);
-    _foundTables = updatedFinder.writtenTables;
+    context.root.acceptWithoutArg(updatedFinder);
+    _foundTables = updatedFinder.writtenTables.map((w) => w.table).toSet();
 
     final isInsert = context.root is InsertStatement;
 
@@ -62,7 +65,7 @@ class QueryHandler {
       name,
       context,
       _foundElements,
-      _foundTables.map(mapper.tableToMoor).toList(),
+      updatedFinder.writtenTables.map(mapper.writtenToMoor).toList(),
       isInsert: isInsert,
       hasMultipleTables: updatedFinder.foundTables.length > 1,
     );
@@ -70,13 +73,24 @@ class QueryHandler {
 
   SqlSelectQuery _handleSelect() {
     final tableFinder = ReferencedTablesVisitor();
-    _select.accept(tableFinder);
+    _select.acceptWithoutArg(tableFinder);
     _foundTables = tableFinder.foundTables;
     final moorTables =
         _foundTables.map(mapper.tableToMoor).where((s) => s != null).toList();
 
+    String requestedName;
+    if (source is DeclaredMoorQuery) {
+      requestedName = (source as DeclaredMoorQuery).astNode.as;
+    }
+
     return SqlSelectQuery(
-        name, context, _foundElements, moorTables, _inferResultSet());
+      name,
+      context,
+      _foundElements,
+      moorTables,
+      _inferResultSet(),
+      requestedName,
+    );
   }
 
   InferredResultSet _inferResultSet() {
@@ -84,6 +98,7 @@ class QueryHandler {
     final columns = <ResultColumn>[];
     final rawColumns = _select.resolvedColumns;
 
+    // First, go through regular result columns
     for (final column in rawColumns) {
       final type = context.typeOf(column).type;
       final moorType = mapper.resolvedToMoor(type);
@@ -97,6 +112,13 @@ class QueryHandler {
 
       final table = _tableOfColumn(column);
       candidatesForSingleTable.removeWhere((t) => t != table);
+    }
+
+    final nestedResults = _findNestedResultTables();
+    if (nestedResults.isNotEmpty) {
+      // The single table optimization doesn't make sense when nested result
+      // sets are present.
+      candidatesForSingleTable.clear();
     }
 
     // if all columns read from the same table, and all columns in that table
@@ -113,6 +135,7 @@ class QueryHandler {
       }
 
       final resultEntryToColumn = <ResultColumn, String>{};
+      final resultColumnNameToMoor = <String, MoorColumn>{};
       var matches = true;
 
       // go trough all columns of the table in question
@@ -126,7 +149,10 @@ class QueryHandler {
           // it is! Remember the correct getter name from the data class for
           // later when we write the mapping code.
           final columnIndex = rawColumns.indexOf(inResultSet.single);
-          resultEntryToColumn[columns[columnIndex]] = column.dartGetterName;
+          final resultColumn = columns[columnIndex];
+
+          resultEntryToColumn[resultColumn] = column.dartGetterName;
+          resultColumnNameToMoor[resultColumn.name] = column;
         } else {
           // it's not, so no match
           matches = false;
@@ -141,12 +167,34 @@ class QueryHandler {
       }
 
       if (matches) {
-        return InferredResultSet(moorTable, columns)
+        final match = MatchingMoorTable(moorTable, resultColumnNameToMoor);
+        return InferredResultSet(match, columns)
           ..forceDartNames(resultEntryToColumn);
       }
     }
 
-    return InferredResultSet(null, columns);
+    return InferredResultSet(null, columns, nestedResults: nestedResults);
+  }
+
+  List<NestedResultTable> _findNestedResultTables() {
+    final query = _select;
+    // We don't currently support nested results for compound statements
+    if (query is! SelectStatement) return const [];
+
+    final nestedTables = <NestedResultTable>[];
+
+    for (final column in (query as SelectStatement).columns) {
+      if (column is NestedStarResultColumn) {
+        final result = column.resultSet;
+        if (result is! Table) continue;
+
+        final moorTable = mapper.tableToMoor(result as Table);
+        nestedTables
+            .add(NestedResultTable(column, column.tableName, moorTable));
+      }
+    }
+
+    return nestedTables;
   }
 
   /// The table a given result column is from, or null if this column doesn't

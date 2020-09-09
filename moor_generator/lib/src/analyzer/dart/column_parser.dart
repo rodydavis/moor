@@ -1,6 +1,7 @@
 part of 'parser.dart';
 
 const String startInt = 'integer';
+const String startEnum = 'intEnum';
 const String startString = 'text';
 const String startBool = 'boolean';
 const String startDateTime = 'dateTime';
@@ -9,6 +10,7 @@ const String startReal = 'real';
 
 const Set<String> starters = {
   startInt,
+  startEnum,
   startString,
   startBool,
   startDateTime,
@@ -23,6 +25,7 @@ const String _methodWithLength = 'withLength';
 const String _methodNullable = 'nullable';
 const String _methodCustomConstraint = 'customConstraint';
 const String _methodDefault = 'withDefault';
+const String _methodClientDefault = 'clientDefault';
 const String _methodMap = 'map';
 
 const String _errorMessage = 'This getter does not create a valid column that '
@@ -65,6 +68,7 @@ class ColumnParser {
     String foundExplicitName;
     String foundCustomConstraint;
     Expression foundDefaultExpression;
+    Expression clientDefaultExpression;
     Expression createdTypeConverter;
     DartType typeConverterRuntime;
     var nullable = false;
@@ -145,6 +149,9 @@ class ColumnParser {
           final expression = args.arguments.single;
           foundDefaultExpression = expression;
           break;
+        case _methodClientDefault:
+          clientDefaultExpression = remainingExpr.argumentList.arguments.single;
+          break;
         case _methodMap:
           final args = remainingExpr.argumentList;
           final expression = args.arguments.single;
@@ -175,9 +182,43 @@ class ColumnParser {
     UsedTypeConverter converter;
     if (createdTypeConverter != null && typeConverterRuntime != null) {
       converter = UsedTypeConverter(
-          expression: createdTypeConverter,
+          expression: createdTypeConverter.toSource(),
           mappedType: typeConverterRuntime,
           sqlType: columnType);
+    }
+
+    if (foundStartMethod == startEnum) {
+      if (converter != null) {
+        base.step.reportError(ErrorInDartCode(
+          message: 'Using $startEnum will apply a custom converter by default, '
+              "so you can't add an additional converter",
+          affectedElement: getter.declaredElement,
+          severity: Severity.warning,
+        ));
+      }
+
+      final enumType = remainingExpr.typeArgumentTypes[0];
+      try {
+        converter = UsedTypeConverter.forEnumColumn(enumType);
+      } on InvalidTypeForEnumConverterException catch (e) {
+        base.step.errors.report(ErrorInDartCode(
+          message: e.errorDescription,
+          affectedElement: getter.declaredElement,
+          severity: Severity.error,
+        ));
+      }
+    }
+
+    if (foundDefaultExpression != null && clientDefaultExpression != null) {
+      base.step.reportError(
+        ErrorInDartCode(
+          severity: Severity.warning,
+          affectedElement: getter.declaredElement,
+          message: 'clientDefault() and withDefault() are mutually exclusive, '
+              "they can't both be used. Use clientDefault() for values that "
+              'are different for each row and withDefault() otherwise.',
+        ),
+      );
     }
 
     return MoorColumn(
@@ -189,6 +230,7 @@ class ColumnParser {
       nullable: nullable,
       features: foundFeatures,
       defaultArgument: foundDefaultExpression?.toSource(),
+      clientDefaultCode: clientDefaultExpression?.toSource(),
       typeConverter: converter,
       declaration: DartColumnDeclaration(element, base.step.file),
     );
@@ -199,6 +241,7 @@ class ColumnParser {
       startBool: ColumnType.boolean,
       startString: ColumnType.text,
       startInt: ColumnType.integer,
+      startEnum: ColumnType.integer,
       startDateTime: ColumnType.datetime,
       startBlob: ColumnType.blob,
       startReal: ColumnType.real,
@@ -209,7 +252,8 @@ class ColumnParser {
     final annotations = getter.metadata;
     final object = annotations.singleWhere((e) {
       final value = e.computeConstantValue();
-      return isFromMoor(value.type) && value.type.name == 'JsonKey';
+      return isFromMoor(value.type) &&
+          value.type.getDisplayString() == 'JsonKey';
     }, orElse: () => null);
 
     if (object == null) return null;

@@ -1,15 +1,17 @@
 import 'package:analyzer/dart/element/element.dart';
+import 'package:moor/moor.dart' show UpdateKind;
 import 'package:moor_generator/src/analyzer/options.dart';
 import 'package:moor_generator/src/model/used_type_converter.dart';
 import 'package:recase/recase.dart';
 import 'package:sqlparser/sqlparser.dart';
 
+import 'base_entity.dart';
 import 'column.dart';
 import 'declarations/declaration.dart';
 
 /// A parsed table, declared in code by extending `Table` and referencing that
 /// table in `@UseMoor` or `@UseDao`.
-class MoorTable implements HasDeclaration {
+class MoorTable implements MoorSchemaEntity {
   /// The [ClassElement] for the class that declares this table or null if
   /// the table was inferred from a `CREATE TABLE` statement.
   final ClassElement fromClass;
@@ -41,7 +43,8 @@ class MoorTable implements HasDeclaration {
   final String dartTypeName;
 
   /// The getter name used for this table in a generated database or dao class.
-  String get tableFieldName => _dbFieldName(_baseName);
+  @override
+  String get dbGetterName => dbFieldName(_baseName);
   String get tableInfoName {
     // if this table was parsed from sql, a user might want to refer to it
     // directly because there is no user defined parent class.
@@ -66,7 +69,19 @@ class MoorTable implements HasDeclaration {
   /// The set of primary keys, if they have been explicitly defined by
   /// overriding `primaryKey` in the table class. `null` if the primary key has
   /// not been defined that way.
+  ///
+  /// For the full primary key, see [fullPrimaryKey].
   final Set<MoorColumn> primaryKey;
+
+  /// The primary key for this table.
+  ///
+  /// Unlikely [primaryKey], this method is not limited to the `primaryKey`
+  /// override in Dart table declarations.
+  Set<MoorColumn> get fullPrimaryKey {
+    if (primaryKey != null) return primaryKey;
+
+    return columns.where((c) => c.features.any((f) => f is PrimaryKey)).toSet();
+  }
 
   /// When non-null, the generated table class will override the `withoutRowId`
   /// getter on the table class with this value.
@@ -80,8 +95,7 @@ class MoorTable implements HasDeclaration {
   /// `customConstraints` getter in the table class with this value.
   final List<String> overrideTableConstraints;
 
-  /// The set of tables referenced somewhere in the declaration of this table,
-  /// for instance by using a `REFERENCES` column constraint.
+  @override
   final Set<MoorTable> references = {};
 
   /// Returns whether this table was created from a `CREATE VIRTUAL TABLE`
@@ -99,9 +113,18 @@ class MoorTable implements HasDeclaration {
     return node is CreateVirtualTableStatement;
   }
 
+  /// If this table [isVirtualTable], returns the `CREATE VIRTUAL TABLE`
+  /// statement to create this table. Otherwise returns null.
+  String get createVirtual {
+    if (!isVirtualTable) return null;
+
+    final node = (declaration as MoorTableDeclaration).node;
+    return (node as CreateVirtualTableStatement).span.text;
+  }
+
   MoorTable({
     this.fromClass,
-    this.columns,
+    this.columns = const [],
     this.sqlName,
     this.dartTypeName,
     this.primaryKey,
@@ -110,12 +133,48 @@ class MoorTable implements HasDeclaration {
     this.overrideTableConstraints,
     this.overrideDontWriteConstraints,
     this.declaration,
-  }) : _overriddenName = overriddenName;
+  }) : _overriddenName = overriddenName {
+    _attachToConverters();
+  }
 
   /// Finds all type converters used in this tables.
   Iterable<UsedTypeConverter> get converters =>
       columns.map((c) => c.typeConverter).where((t) => t != null);
 
+  void _attachToConverters() {
+    var index = 0;
+    for (final converter in converters) {
+      converter
+        ..index = index++
+        ..table = this;
+    }
+  }
+
+  /// Determines whether [column] would be required for inserts performed via
+  /// companions.
+  bool isColumnRequiredForInsert(MoorColumn column) {
+    assert(columns.contains(column));
+
+    if (column.defaultArgument != null ||
+        column.clientDefaultCode != null ||
+        column.nullable) {
+      // default value would be applied, so it's not required for inserts
+      return false;
+    }
+
+    // A column isn't required if it's an alias for the rowid, as explained
+    // at https://www.sqlite.org/lang_createtable.html#rowid
+    final isWithoutRowId = overrideWithoutRowId ?? false;
+    final fullPk = fullPrimaryKey;
+    final isAliasForRowId = !isWithoutRowId &&
+        column.type == ColumnType.integer &&
+        fullPk.length == 1 &&
+        fullPk.single == column;
+
+    return !isAliasForRowId;
+  }
+
+  @override
   String get displayName {
     if (isFromSql) {
       return sqlName;
@@ -130,6 +189,13 @@ class MoorTable implements HasDeclaration {
   }
 }
 
-String _dbFieldName(String className) => ReCase(className).camelCase;
+class WrittenMoorTable {
+  final MoorTable table;
+  final UpdateKind kind;
+
+  WrittenMoorTable(this.table, this.kind);
+}
+
+String dbFieldName(String className) => ReCase(className).camelCase;
 
 String tableInfoNameForTableClass(String className) => '\$${className}Table';

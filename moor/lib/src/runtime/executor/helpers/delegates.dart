@@ -13,7 +13,7 @@ import 'package:moor/src/runtime/executor/helpers/results.dart';
 /// - [double]
 /// - [String]
 /// - [Uint8List]
-abstract class DatabaseDelegate implements QueryDelegate {
+abstract class DatabaseDelegate extends QueryDelegate {
   /// Whether the database managed by this delegate is in a transaction at the
   /// moment. This field is only set when the [transactionDelegate] is a
   /// [NoTransactionDelegate], because in that case transactions are run on
@@ -46,11 +46,11 @@ abstract class DatabaseDelegate implements QueryDelegate {
   /// times, so you don't have to worry about a connection being created
   /// multiple times.
   ///
-  /// The [GeneratedDatabase] is the user-defined database annotated with
+  /// The [QueryExecutorUser] is the user-defined database annotated with
   /// [UseMoor]. It might be useful to read the
-  /// [GeneratedDatabase.schemaVersion] if that information is required while
+  /// [QueryExecutorUser.schemaVersion] if that information is required while
   /// opening the database.
-  Future<void> open([GeneratedDatabase db]);
+  Future<void> open(QueryExecutorUser db);
 
   /// Closes this database. When the future completes, all resources used
   /// by this database should have been disposed.
@@ -98,16 +98,17 @@ abstract class QueryDelegate {
   /// throws when the statement can't be executed.
   Future<void> runCustom(String statement, List<dynamic> args);
 
-  /// Runs each of the [statements] with all set of variables in each
-  /// [BatchedStatement.variables]. For database APIs that support preparing
-  /// statements, this allows us to only prepare a statement once for each
-  /// [BatchedStatement], which can be executed multiple times.
-  Future<void> runBatched(List<BatchedStatement> statements) async {
+  /// Runs multiple [statements] without having to prepare the same statement
+  /// multiple times.
+  ///
+  /// See also:
+  ///  - [QueryExecutor.runBatched].
+  Future<void> runBatched(BatchedStatements statements) async {
     // default, inefficient implementation
-    for (final stmt in statements) {
-      for (final boundVars in stmt.variables) {
-        await runCustom(stmt.sql, boundVars);
-      }
+    for (final application in statements.arguments) {
+      final sql = statements.statements[application.statementIndex];
+
+      await runCustom(sql, application.arguments);
     }
   }
 }

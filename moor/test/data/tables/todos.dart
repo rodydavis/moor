@@ -1,4 +1,5 @@
 import 'package:moor/moor.dart';
+import 'package:uuid/uuid.dart';
 
 part 'todos.g.dart';
 
@@ -32,7 +33,11 @@ class Users extends Table with AutoIncrement {
 class Categories extends Table with AutoIncrement {
   TextColumn get description =>
       text().named('desc').customConstraint('NOT NULL UNIQUE')();
+  IntColumn get priority =>
+      intEnum<CategoryPriority>().withDefault(const Constant(0))();
 }
+
+enum CategoryPriority { low, medium, high }
 
 class SharedTodos extends Table {
   IntColumn get todo => integer()();
@@ -48,16 +53,22 @@ class SharedTodos extends Table {
       ];
 }
 
+final _uuid = Uuid();
+
 class TableWithoutPK extends Table {
   IntColumn get notReallyAnId => integer()();
   RealColumn get someFloat => real()();
 
-  TextColumn get custom => text().map(const CustomConverter())();
+  TextColumn get custom =>
+      text().map(const CustomConverter()).clientDefault(_uuid.v4)();
 }
 
-class PureDefaults extends Table with AutoIncrement {
+class PureDefaults extends Table {
   // name after keyword to ensure it's escaped properly
   TextColumn get txt => text().named('insert').nullable()();
+
+  @override
+  Set<Column> get primaryKey => {txt};
 }
 
 // example object used for custom mapping
@@ -108,7 +119,7 @@ class TodoDb extends _$TodoDb {
   }
 
   @override
-  MigrationStrategy get migration => MigrationStrategy();
+  MigrationStrategy migration = MigrationStrategy();
 
   @override
   int get schemaVersion => 1;

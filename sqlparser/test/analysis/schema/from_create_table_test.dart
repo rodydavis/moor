@@ -2,6 +2,7 @@ import 'package:sqlparser/sqlparser.dart';
 import 'package:test/test.dart';
 
 import '../../common_data.dart';
+import '../data.dart';
 
 const _affinityTests = {
   'INT': BasicType.int,
@@ -36,7 +37,7 @@ const _affinityTests = {
 
 void main() {
   test('affinity from typename', () {
-    final resolver = SchemaFromCreateTable();
+    const resolver = SchemaFromCreateTable();
 
     _affinityTests.forEach((key, value) {
       expect(resolver.columnAffinity(key), equals(value),
@@ -48,7 +49,8 @@ void main() {
     final engine = SqlEngine();
     final stmt = engine.parse(createTableStmt).rootNode;
 
-    final table = SchemaFromCreateTable().read(stmt as CreateTableStatement);
+    final table =
+        const SchemaFromCreateTable().read(stmt as CreateTableStatement);
 
     expect(table.resolvedColumns.map((c) => c.name),
         ['id', 'email', 'score', 'display_name']);
@@ -63,14 +65,14 @@ void main() {
   });
 
   test('supports booleans when moor extensions are enabled', () {
-    final engine = SqlEngine(useMoorExtensions: true);
+    final engine = SqlEngine(EngineOptions(useMoorExtensions: true));
     final stmt = engine.parse('''
     CREATE TABLE foo (
       a BOOL, b DATETIME, c DATE, d BOOLEAN NOT NULL
     )
     ''').rootNode;
 
-    final table = SchemaFromCreateTable(moorExtensions: true)
+    final table = const SchemaFromCreateTable(moorExtensions: true)
         .read(stmt as CreateTableStatement);
     expect(table.resolvedColumns.map((c) => c.type), const [
       ResolvedType(type: BasicType.int, hint: IsBoolean(), nullable: true),
@@ -78,5 +80,42 @@ void main() {
       ResolvedType(type: BasicType.int, hint: IsDateTime(), nullable: true),
       ResolvedType(type: BasicType.int, hint: IsBoolean(), nullable: false),
     ]);
+  });
+
+  group('can read views', () {
+    final engine = SqlEngine()..registerTable(demoTable);
+
+    View readView(String sql) {
+      final context = engine.analyze(sql);
+      final stmt = context.root as CreateViewStatement;
+      return const SchemaFromCreateTable().readView(context, stmt);
+    }
+
+    test('without column names', () {
+      final view = readView('CREATE VIEW my_view AS SELECT * FROM demo;');
+
+      expect(view.name, 'my_view');
+      expect(view.resolvedColumns.map((e) => e.name), ['id', 'content']);
+      expect(
+        view.resolvedColumns.map((e) => e.type.type),
+        [BasicType.int, BasicType.text],
+      );
+    });
+
+    test('with custom column names', () {
+      final view = readView(
+          'CREATE VIEW another_view (foo, bar) AS SELECT * FROM demo;');
+
+      expect(view.name, 'another_view');
+      expect(view.resolvedColumns.map((e) => e.name), ['foo', 'bar']);
+    });
+  });
+
+  test('can read columns without type name', () {
+    final engine = SqlEngine();
+    final stmt = engine.parse('CREATE TABLE foo (id);').rootNode;
+
+    final table = engine.schemaReader.read(stmt as CreateTableStatement);
+    expect(table.resolvedColumns.single.type.type, BasicType.blob);
   });
 }

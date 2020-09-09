@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'package:moor/moor.dart';
+import 'package:moor/src/runtime/api/runtime_api.dart';
 import 'package:moor/src/runtime/executor/stream_queries.dart';
+import 'package:rxdart/rxdart.dart';
 import 'package:test/test.dart';
 
+import 'data/tables/custom_tables.dart';
 import 'data/tables/todos.dart';
 import 'data/utils/mocks.dart';
 
@@ -14,12 +17,13 @@ void main() {
     db = TodoDb(executor);
   });
 
-  test('streams fetch when the first listener attaches', () {
+  test('streams fetch when the first listener attaches', () async {
     final stream = db.select(db.users).watch();
 
     verifyNever(executor.runSelect(any, any));
 
     stream.listen((_) {});
+    await pumpEventQueue(times: 1);
 
     verify(executor.runSelect(any, any)).called(1);
   });
@@ -61,6 +65,18 @@ void main() {
     // calling executor.dialect is ok, it's needed to construct the statement
     verify(executor.dialect);
     verifyNoMoreInteractions(executor);
+  });
+
+  test('same stream emits cached data when listening twice', () async {
+    when(executor.runSelect(any, any)).thenAnswer((_) => Future.value([]));
+
+    final stream = db.select(db.users).watch();
+    expect(await stream.first, isEmpty);
+
+    clearInteractions(executor);
+
+    await stream.first;
+    verifyNever(executor.runSelect(any, any));
   });
 
   group('updating clears cached data', () {
@@ -146,8 +162,21 @@ void main() {
     when(executor.runSelect(any, any))
         .thenAnswer((_) => Future.error(exception));
 
-    final result = db.customSelectQuery('select 1').watch().first;
+    final result = db.customSelect('select 1').watch().first;
     expectLater(result, throwsA(exception));
+  });
+
+  test('database can be closed when a stream has a paused subscription',
+      () async {
+    // this test is more relevant than it seems - some test stream matchers
+    // leave the stream in an empty state.
+    final stream = db.select(db.users).watch();
+    final subscription = stream.listen((_) {})..pause();
+
+    await db.close();
+
+    subscription.resume();
+    await subscription.cancel();
   });
 
   group('stream keys', () {
@@ -187,14 +216,138 @@ void main() {
       verifyNever(executor.runSelect(any, any));
     });
 
-    test('when the data updates after the listener has detached', () {
+    test('when the data updates after the listener has detached', () async {
       final subscription = db.select(db.users).watch().listen((_) {});
+
+      await subscription.cancel();
       clearInteractions(executor);
 
-      subscription.cancel();
+      // The stream is kept open for the rest of this event iteration
+      final completer = Completer.sync();
+      Timer.run(completer.complete);
+      await completer.future;
+
       db.markTablesUpdated({db.users});
 
       verifyNever(executor.runSelect(any, any));
     });
+  });
+
+  // note: There's a trigger on config inserts that updates with_defaults
+  test('updates streams for updates caused by triggers', () async {
+    final db = CustomTablesDb(executor);
+    db.select(db.withDefaults).watch().listen((_) {});
+
+    db.notifyUpdates({const TableUpdate('config', kind: UpdateKind.insert)});
+    await pumpEventQueue(times: 1);
+
+    verify(executor.runSelect(any, any)).called(2);
+  });
+
+  test('limits trigger propagation to the target type of trigger', () async {
+    final db = CustomTablesDb(executor);
+    db.select(db.withDefaults).watch().listen((_) {});
+
+    db.notifyUpdates({const TableUpdate('config', kind: UpdateKind.delete)});
+    await pumpEventQueue(times: 1);
+
+    verify(executor.runSelect(any, any)).called(1);
+  });
+
+  group('listen for table updates', () {
+    test('any', () async {
+      var counter = 0;
+      db.tableUpdates().listen((event) => counter++);
+
+      db.markTablesUpdated({db.todosTable});
+      await pumpEventQueue(times: 1);
+      expect(counter, 1);
+
+      db.markTablesUpdated({db.users});
+      await pumpEventQueue(times: 1);
+      expect(counter, 2);
+    });
+
+    test('stream is async', () {
+      var counter = 0;
+      db.tableUpdates().listen((event) => counter++);
+
+      db.markTablesUpdated({});
+      // no wait here, the counter should not be updated yet.
+      expect(counter, 0);
+    });
+
+    test('specific table', () async {
+      var counter = 0;
+      db
+          .tableUpdates(TableUpdateQuery.onTable(db.users))
+          .listen((event) => counter++);
+
+      db.markTablesUpdated({db.todosTable});
+      await pumpEventQueue(times: 1);
+      expect(counter, 0);
+
+      db.markTablesUpdated({db.users});
+      await pumpEventQueue(times: 1);
+      expect(counter, 1);
+
+      db.markTablesUpdated({db.categories});
+      await pumpEventQueue(times: 1);
+      expect(counter, 1);
+    });
+
+    test('specific table and update kind', () async {
+      var counter = 0;
+      db
+          .tableUpdates(TableUpdateQuery.onTable(db.users,
+              limitUpdateKind: UpdateKind.update))
+          .listen((event) => counter++);
+
+      db.markTablesUpdated({db.todosTable});
+      await pumpEventQueue(times: 1);
+      expect(counter, 0);
+
+      db.notifyUpdates(
+          {TableUpdate.onTable(db.users, kind: UpdateKind.update)});
+      await pumpEventQueue(times: 1);
+      expect(counter, 1);
+
+      db.notifyUpdates(
+          {TableUpdate.onTable(db.users, kind: UpdateKind.delete)});
+      await pumpEventQueue(times: 1);
+      expect(counter, 1);
+    });
+  });
+
+  test('stream queries are broadcasts', () {
+    expect(db.customSelect('SELECT 1').watch().isBroadcast, isTrue);
+    expect(db.customSelect('SELECT 1').watchSingle().isBroadcast, isTrue);
+  });
+
+  test('moor streams can be used with switchMap in rxdart', () async {
+    // Regression test for https://github.com/simolus3/moor/issues/500
+    when(executor.runSelect(any, any)).thenAnswer((i) async {
+      final sql = i.positionalArguments.first as String;
+
+      return [
+        if (sql.contains("'a'")) {'a': 'a'} else {'b': 'b'}
+      ];
+    });
+
+    final a = db
+        .customSelect("select 'a' as a")
+        .map(($) => $.readString('a'))
+        .watchSingle();
+    final b = db
+        .customSelect("select 'b' as b")
+        .map(($) => $.readString('b'))
+        .watchSingle();
+    final c = a.switchMap((_) => b);
+    expect(await a.first, 'a');
+    expect(await a.first, 'a');
+    expect(await b.first, 'b');
+    expect(await b.first, 'b');
+    expect(await c.first, 'b');
+    expect(await c.first, 'b');
   });
 }

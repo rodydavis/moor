@@ -35,7 +35,7 @@ final Map<String, Expression> _testCases = {
     token(TokenType.doubleEqual),
     FunctionExpression(
       name: 'COUNT',
-      parameters: const StarFunctionParameter(),
+      parameters: StarFunctionParameter(),
     ),
   ),
   '? * ?3 + ?2 == :test': BinaryExpression(
@@ -65,6 +65,35 @@ final Map<String, Expression> _testCases = {
     ],
     elseExpr: Reference(columnName: 'e'),
   ),
+  'CASE WHEN a THEN '
+      'CASE WHEN b THEN c ELSE d END '
+      'ELSE '
+      'CASE WHEN e THEN f ELSE g END '
+      'END': CaseExpression(
+    whens: [
+      WhenComponent(
+        when: Reference(columnName: 'a'),
+        then: CaseExpression(
+          whens: [
+            WhenComponent(
+              when: Reference(columnName: 'b'),
+              then: Reference(columnName: 'c'),
+            ),
+          ],
+          elseExpr: Reference(columnName: 'd'),
+        ),
+      ),
+    ],
+    elseExpr: CaseExpression(
+      whens: [
+        WhenComponent(
+          when: Reference(columnName: 'e'),
+          then: Reference(columnName: 'f'),
+        ),
+      ],
+      elseExpr: Reference(columnName: 'g'),
+    ),
+  ),
   "x NOT LIKE '%A%\$' ESCAPE '\$'": StringComparisonExpression(
     not: true,
     left: Reference(columnName: 'x'),
@@ -77,9 +106,7 @@ final Map<String, Expression> _testCases = {
     ExistsExpression(
       select: SelectStatement(
         columns: [StarResultColumn(null)],
-        from: [
-          TableReference('demo', null),
-        ],
+        from: TableReference('demo', null),
       ),
     ),
   ),
@@ -114,9 +141,7 @@ final Map<String, Expression> _testCases = {
             expression: Reference(columnName: 'col'),
           )
         ],
-        from: [
-          TableReference('tbl', null),
-        ],
+        from: TableReference('tbl', null),
       ),
     ),
   ),
@@ -135,6 +160,34 @@ final Map<String, Expression> _testCases = {
         ),
       ],
     ),
+  ),
+  'CAST(3 + 4 AS TEXT)': CastExpression(
+    BinaryExpression(
+      NumericLiteral(3.0, token(TokenType.numberLiteral)),
+      token(TokenType.plus),
+      NumericLiteral(4.0, token(TokenType.numberLiteral)),
+    ),
+    'TEXT',
+  ),
+  'foo ISNULL': IsNullExpression(Reference(columnName: 'foo')),
+  'foo NOTNULL': IsNullExpression(Reference(columnName: 'foo'), true),
+  'CURRENT_TIME': TimeConstantLiteral(
+      TimeConstantKind.currentTime, token(TokenType.currentTime)),
+  'CURRENT_TIMESTAMP': TimeConstantLiteral(
+      TimeConstantKind.currentTimestamp, token(TokenType.currentTimestamp)),
+  'CURRENT_DATE': TimeConstantLiteral(
+      TimeConstantKind.currentDate, token(TokenType.currentDate)),
+  '(1, 2, 3) > (?, ?, ?)': BinaryExpression(
+    Tuple(expressions: [
+      for (var i = 1; i <= 3; i++)
+        NumericLiteral(i, token(TokenType.numberLiteral)),
+    ]),
+    token(TokenType.more),
+    Tuple(expressions: [
+      NumberedVariable(QuestionMarkVariableToken(fakeSpan('?'), null)),
+      NumberedVariable(QuestionMarkVariableToken(fakeSpan('?'), null)),
+      NumberedVariable(QuestionMarkVariableToken(fakeSpan('?'), null)),
+    ]),
   ),
 };
 

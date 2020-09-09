@@ -1,4 +1,6 @@
 import 'package:moor_generator/moor_generator.dart';
+import 'package:moor_generator/src/utils/string_escaper.dart';
+import 'package:moor_generator/src/writer/utils/override_toString.dart';
 import 'package:moor_generator/writer.dart';
 import 'package:recase/recase.dart';
 
@@ -18,8 +20,9 @@ class DataClassWriter {
 
     // write individual fields
     for (final column in table.columns) {
-      _buffer
-          .write('final ${column.dartTypeName} ${column.dartGetterName}; \n');
+      final modifier = scope.options.fieldModifier;
+      _buffer.write(
+          '$modifier ${column.dartTypeName} ${column.dartGetterName}; \n');
     }
 
     // write constructor with named optional fields
@@ -38,10 +41,14 @@ class DataClassWriter {
     // Also write parsing factory
     _writeMappingConstructor();
 
+    _writeToColumnsOverride();
+    if (scope.options.dataClassToCompanions) {
+      _writeToCompanion();
+    }
+
     // And a serializer and deserializer method
     _writeFromJson();
     _writeToJson();
-    _writeCompanionOverride();
 
     // And a convenience method to copy data from this class.
     _writeCopyWith();
@@ -108,9 +115,9 @@ class DataClassWriter {
 
     _buffer
       ..write('factory $dataClassName.fromJson('
-          'Map<String, dynamic> json,'
-          '{ValueSerializer serializer = const ValueSerializer.defaults()}'
+          'Map<String, dynamic> json, {ValueSerializer serializer}'
           ') {\n')
+      ..write('serializer ??= moorRuntimeOptions.defaultSerializer;\n')
       ..write('return $dataClassName(');
 
     for (final column in table.columns) {
@@ -126,7 +133,7 @@ class DataClassWriter {
     if (scope.writer.options.generateFromJsonStringConstructor) {
       // also generate a constructor that only takes a json string
       _buffer.write('factory $dataClassName.fromJsonString(String encodedJson, '
-          '{ValueSerializer serializer = const ValueSerializer.defaults()}) => '
+          '{ValueSerializer serializer}) => '
           '$dataClassName.fromJson('
           'DataClass.parseJson(encodedJson) as Map<String, dynamic>, '
           'serializer: serializer);');
@@ -135,8 +142,9 @@ class DataClassWriter {
 
   void _writeToJson() {
     _buffer.write('@override Map<String, dynamic> toJson('
-        '{ValueSerializer serializer = const ValueSerializer.defaults()}) {'
-        '\n return <String, dynamic>{');
+        '{ValueSerializer serializer}) {\n'
+        'serializer ??= moorRuntimeOptions.defaultSerializer;\n'
+        'return <String, dynamic>{\n');
 
     for (final column in table.columns) {
       final name = column.getJsonKey(scope.options);
@@ -177,33 +185,70 @@ class DataClassWriter {
     _buffer.write(');');
   }
 
-  void _writeToString() {
-    /*
-      @override
-      String toString() {
-        return (StringBuffer('User(')
-            ..write('id: $id,')
-            ..write('name: $name,')
-            ..write('isAwesome: $isAwesome')
-            ..write(')')).toString();
-      }
-     */
-
+  void _writeToColumnsOverride() {
     _buffer
-      ..write('@override\nString toString() {')
-      ..write("return (StringBuffer('${table.dartTypeName}(')");
+      ..write('@override\nMap<String, Expression> toColumns'
+          '(bool nullToAbsent) {\n')
+      ..write('final map = <String, Expression> {};');
 
-    for (var i = 0; i < table.columns.length; i++) {
-      final column = table.columns[i];
-      final getterName = column.dartGetterName;
+    for (final column in table.columns) {
+      _buffer.write('if (!nullToAbsent || ${column.dartGetterName} != null) {');
+      final mapSetter = 'map[${asDartLiteral(column.name.name)}] = '
+          'Variable<${column.variableTypeName}>';
 
-      _buffer.write("..write('$getterName: \$$getterName");
-      if (i != table.columns.length - 1) _buffer.write(', ');
+      if (column.typeConverter != null) {
+        // apply type converter before writing the variable
+        final converter = column.typeConverter;
+        final fieldName = '${table.tableInfoName}.${converter.fieldName}';
+        _buffer
+          ..write('final converter = $fieldName;\n')
+          ..write(mapSetter)
+          ..write('(converter.mapToSql(${column.dartGetterName}));');
+      } else {
+        // no type converter. Write variable directly
+        _buffer
+          ..write(mapSetter)
+          ..write('(')
+          ..write(column.dartGetterName)
+          ..write(');');
+      }
 
-      _buffer.write("')");
+      _buffer.write('}');
     }
 
-    _buffer..write("..write(')')).toString();")..write('\}\n');
+    _buffer.write('return map; \n}\n');
+  }
+
+  void _writeToCompanion() {
+    _buffer
+      ..write(table.getNameForCompanionClass(scope.options))
+      ..write(' toCompanion(bool nullToAbsent) {\n');
+
+    _buffer
+      ..write('return ')
+      ..write(table.getNameForCompanionClass(scope.options))
+      ..write('(');
+
+    for (final column in table.columns) {
+      final dartName = column.dartGetterName;
+      _buffer
+        ..write(dartName)
+        ..write(': ')
+        ..write(dartName)
+        ..write(' == null && nullToAbsent ? const Value.absent() : Value (')
+        ..write(dartName)
+        ..write('),');
+    }
+
+    _buffer.write(');\n}');
+  }
+
+  void _writeToString() {
+    overrideToString(
+      table.dartTypeName,
+      [for (final column in table.columns) column.dartGetterName],
+      _buffer,
+    );
   }
 
   void _writeHashCode() {
@@ -212,21 +257,5 @@ class DataClassWriter {
     final fields = table.columns.map((c) => c.dartGetterName).toList();
     const HashCodeWriter().writeHashCode(fields, _buffer);
     _buffer.write(';');
-  }
-
-  void _writeCompanionOverride() {
-    // TableCompanion createCompanion(bool nullToAbsent)
-
-    final companionClass = table.getNameForCompanionClass(scope.options);
-    _buffer.write('@override\n'
-        '$companionClass createCompanion(bool nullToAbsent) {\n'
-        'return $companionClass(');
-
-    for (final column in table.columns) {
-      final getter = column.dartGetterName;
-      _buffer.write('$getter: $getter == null && nullToAbsent ? '
-          'const Value.absent() : Value($getter),');
-    }
-    _buffer.write(');}\n');
   }
 }

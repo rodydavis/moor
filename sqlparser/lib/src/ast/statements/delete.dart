@@ -1,15 +1,24 @@
 part of '../ast.dart';
 
-class DeleteStatement extends CrudStatement implements HasWhereClause {
-  final TableReference from;
+class DeleteStatement extends CrudStatement implements StatementWithWhere {
+  TableReference from;
   @override
-  final Expression where;
+  Expression where;
 
   DeleteStatement({WithClause withClause, @required this.from, this.where})
       : super._(withClause);
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitDeleteStatement(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitDeleteStatement(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    withClause = transformer.transformNullableChild(withClause, this, arg);
+    from = transformer.transformChild(from, this, arg);
+    where = transformer.transformNullableChild(where, this, arg);
+  }
 
   @override
   Iterable<AstNode> get childNodes => [

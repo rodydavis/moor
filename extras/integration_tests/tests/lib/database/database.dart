@@ -71,10 +71,12 @@ class PreferenceConverter extends TypeConverter<Preferences, String> {
     'amountOfGoodFriends':
         'SELECT COUNT(*) FROM friendships f WHERE f.really_good_friends AND '
             '(f.first_user = :user OR f.second_user = :user)',
-    'friendsOf': '''SELECT u.* FROM friendships f
-         INNER JOIN users u ON u.id IN (f.first_user, f.second_user) AND
-           u.id != :user
-         WHERE (f.first_user = :user OR f.second_user = :user)''',
+    'friendshipsOf': ''' SELECT 
+          f.really_good_friends, user.**
+       FROM friendships f
+         INNER JOIN users user ON user.id IN (f.first_user, f.second_user) AND
+             user.id != :user
+       WHERE (f.first_user = :user OR f.second_user = :user)''',
     'userCount': 'SELECT COUNT(id) FROM users',
     'settingsFor': 'SELECT preferences FROM users WHERE id = :user',
     'usersById': 'SELECT * FROM users WHERE id IN ?',
@@ -85,33 +87,52 @@ class Database extends _$Database {
   @override
   final int schemaVersion;
 
-  Database(QueryExecutor e, {this.schemaVersion = 2}) : super(e);
+  Database(DatabaseConnection e, {this.schemaVersion = 2}) : super.connect(e);
+
+  Database.executor(QueryExecutor db)
+      : this(DatabaseConnection.fromExecutor(db));
+
+  /// It will be set in the onUpgrade callback. Null if no migration occurred
+  int schemaVersionChangedFrom;
+
+  /// It will be set in the onUpgrade callback. Null if no migration occurred
+  int schemaVersionChangedTo;
+
+  MigrationStrategy overrideMigration;
 
   @override
   MigrationStrategy get migration {
-    return MigrationStrategy(
-      onCreate: (m) async {
-        await m.createTable(users);
-        if (schemaVersion >= 2) {
-          await m.createTable(friendships);
-        }
-      },
-      onUpgrade: (m, from, to) async {
-        if (from == 1) {
-          await m.createTable(friendships);
-        }
-      },
-      beforeOpen: (details) async {
-        if (details.wasCreated) {
-          // make sure that transactions can be used in the beforeOpen callback.
-          await transaction(() async {
-            batch((batch) {
-              batch.insertAll(users, [people.dash, people.duke, people.gopher]);
-            });
-          });
-        }
-      },
-    );
+    return overrideMigration ??
+        MigrationStrategy(
+          onCreate: (m) async {
+            await m.createTable(users);
+            if (schemaVersion >= 2) {
+              // ensure that transactions can be used in a migration callback.
+              await transaction(() async {
+                await m.createTable(friendships);
+              });
+            }
+          },
+          onUpgrade: (m, from, to) async {
+            schemaVersionChangedFrom = from;
+            schemaVersionChangedTo = to;
+
+            if (from == 1) {
+              await m.createTable(friendships);
+            }
+          },
+          beforeOpen: (details) async {
+            if (details.wasCreated) {
+              // make sure that transactions can be used in the beforeOpen callback.
+              await transaction(() async {
+                await batch((batch) {
+                  batch.insertAll(
+                      users, [people.dash, people.duke, people.gopher]);
+                });
+              });
+            }
+          },
+        );
   }
 
   Future<void> deleteUser(User user, {bool fail = false}) {
@@ -141,6 +162,8 @@ class Database extends _$Database {
     return into(users).insert(user);
   }
 
+  Selectable<User> friendsOf(int id) => friendshipsOf(id).map((r) => r.user);
+
   Future<void> makeFriends(User a, User b, {bool goodFriends}) async {
     var friendsValue = const Value<bool>.absent();
     if (goodFriends != null) {
@@ -153,7 +176,7 @@ class Database extends _$Database {
       reallyGoodFriends: friendsValue,
     );
 
-    await into(friendships).insert(companion, orReplace: true);
+    await into(friendships).insert(companion, mode: InsertMode.insertOrReplace);
   }
 
   Future<void> updateSettings(int userId, Preferences c) async {

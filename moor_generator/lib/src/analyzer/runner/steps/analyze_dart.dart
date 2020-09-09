@@ -10,13 +10,37 @@ class AnalyzeDartStep extends AnalyzingStep {
     for (final accessor in parseResult.dbAccessors) {
       final transitiveImports = _transitiveImports(accessor.imports);
 
-      var availableTables = _availableTables(transitiveImports)
-          .followedBy(accessor.declaredTables)
-          .toList();
+      final unsortedEntities = _availableEntities(transitiveImports).toSet();
+
+      final tableDartClasses = unsortedEntities.map((e) {
+        final declaration = e.declaration;
+        if (declaration is DartTableDeclaration) {
+          return declaration.element;
+        }
+        return null;
+      }).where((element) => element != null);
+
+      for (final declaredHere in accessor.declaredTables) {
+        // See issue #447: The table added to an accessor might already be
+        // included through a transitive moor file. In that case, we just ignore
+        // it to avoid duplicates.
+        final declaration = declaredHere.declaration;
+        if (declaration is DartTableDeclaration &&
+            tableDartClasses.contains(declaration.element)) {
+          continue;
+        }
+
+        // Not a Dart table that we already included - add it now
+        unsortedEntities.add(declaredHere);
+      }
+
+      List<MoorSchemaEntity> availableEntities;
 
       try {
-        availableTables = sortTablesTopologically(availableTables);
+        availableEntities = sortEntitiesTopologically(unsortedEntities);
       } on CircularReferenceException catch (e) {
+        // Just keep them unsorted so that we can generate some code
+        availableEntities = unsortedEntities.toList();
         final msg = StringBuffer(
             'Found a circular reference in your database. This can cause '
             'exceptions at runtime when opening the database. This is the '
@@ -32,19 +56,34 @@ class AnalyzeDartStep extends AnalyzingStep {
           affectedElement: accessor.fromClass,
           message: msg.toString(),
         ));
+      } on Exception catch (e) {
+        // unknown error while sorting
+        reportError(ErrorInDartCode(
+          severity: Severity.warning,
+          affectedElement: accessor.fromClass,
+          message: 'Unknown error while sorting database entities: $e',
+        ));
       }
+
+      // Just to have something in case the above breaks.
+      availableEntities ??= const [];
 
       final availableQueries = transitiveImports
           .map((f) => f.currentResult)
           .whereType<ParsedMoorFile>()
           .expand((f) => f.resolvedQueries);
 
-      final parser = SqlParser(this, availableTables, accessor.declaredQueries);
+      final availableTables = availableEntities.whereType<MoorTable>().toList();
+      final parser =
+          SqlAnalyzer(this, availableTables, accessor.declaredQueries);
       parser.parse();
 
       accessor
-        ..tables = availableTables
+        ..entities = availableEntities
         ..queries = availableQueries.followedBy(parser.foundQueries).toList();
+
+      // Support custom result class names.
+      CustomResultClassTransformer(accessor).transform(errors);
     }
   }
 }

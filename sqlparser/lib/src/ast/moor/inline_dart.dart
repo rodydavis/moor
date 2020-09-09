@@ -24,7 +24,12 @@ abstract class DartPlaceholder extends AstNode {
   final Iterable<AstNode> childNodes = const Iterable.empty();
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitDartPlaceholder(this);
+  void transformChildren<A>(Transformer<A> transformer, A arg) {}
+
+  @override
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitDartPlaceholder(this, arg);
+  }
 
   bool _dartEquals(covariant DartPlaceholder other) => true;
 

@@ -21,6 +21,12 @@ class PreparedStatement {
     _closed = true;
   }
 
+  /// Returns the amount of parameters in this prepared statement.
+  ///
+  /// See also:
+  /// - `sqlite3_bind_parameter_count`: https://www.sqlite.org/c3ref/bind_parameter_count.html
+  int get parameterCount => bindings.sqlite3_bind_parameter_count(_stmt);
+
   void _ensureNotFinalized() {
     if (_closed) {
       throw StateError('Tried to operate on a released prepared statement');
@@ -30,6 +36,11 @@ class PreparedStatement {
   /// Executes this prepared statement as a select statement. The returned rows
   /// will be returned.
   Result select([List<dynamic> params]) {
+    assert(
+      (params?.length ?? 0) == parameterCount,
+      'Expected $parameterCount params, but got ${params?.length ?? 0}.',
+    );
+
     _ensureNotFinalized();
     _reset();
     _bindParams(params);
@@ -45,8 +56,13 @@ class PreparedStatement {
       names[i] = bindings.sqlite3_column_name(_stmt, i).readString();
     }
 
-    while (_step() == Errors.SQLITE_ROW) {
+    int resultCode;
+    while ((resultCode = _step()) == Errors.SQLITE_ROW) {
       rows.add([for (var i = 0; i < columnCount; i++) _readValue(i)]);
+    }
+
+    if (resultCode != Errors.SQLITE_OK && resultCode != Errors.SQLITE_DONE) {
+      throw SqliteException._fromErrorCode(_db._db, resultCode);
     }
 
     return Result(names, rows);
@@ -56,7 +72,7 @@ class PreparedStatement {
     final type = bindings.sqlite3_column_type(_stmt, index);
     switch (type) {
       case Types.SQLITE_INTEGER:
-        return bindings.sqlite3_column_int(_stmt, index);
+        return bindings.sqlite3_column_int64(_stmt, index);
       case Types.SQLITE_FLOAT:
         return bindings.sqlite3_column_double(_stmt, index);
       case Types.SQLITE_TEXT:
@@ -66,6 +82,12 @@ class PreparedStatement {
             .readAsStringWithLength(length);
       case Types.SQLITE_BLOB:
         final length = bindings.sqlite3_column_bytes(_stmt, index);
+        if (length == 0) {
+          // sqlite3_column_blob returns a null pointer for non-null blobs with
+          // a length of 0. Note that we can distinguish this from a proper null
+          // by checking the type (which isn't SQLITE_NULL)
+          return Uint8List(0);
+        }
         return bindings.sqlite3_column_blob(_stmt, index).readBytes(length);
       case Types.SQLITE_NULL:
       default:
@@ -106,7 +128,7 @@ class PreparedStatement {
         if (param == null) {
           bindings.sqlite3_bind_null(_stmt, i);
         } else if (param is int) {
-          bindings.sqlite3_bind_int(_stmt, i, param);
+          bindings.sqlite3_bind_int64(_stmt, i, param);
         } else if (param is num) {
           bindings.sqlite3_bind_double(_stmt, i, param.toDouble());
         } else if (param is String) {
@@ -115,16 +137,26 @@ class PreparedStatement {
 
           bindings.sqlite3_bind_text(_stmt, i, ptr, -1, nullPtr());
         } else if (param is Uint8List) {
-          // avoid binding a null-pointer, as sqlite would treat that as NULL
-          // in sql which is different from x''
-          final ptr = param.isNotEmpty
-              ? CBlob.allocate(param)
-              : CBlob.allocateString('');
+          if (param.isEmpty) {
+            // malloc(0) is implementation-defined and might return a null
+            // pointer, which is not what we want: Passing a null-pointer to
+            // sqlite3_bind_blob will always bind NULL. So, we just pass 0x1 and
+            // set a length of 0
+            bindings.sqlite3_bind_blob(
+                _stmt, i, Pointer.fromAddress(1), param.length, nullPtr());
+          } else {
+            final ptr = CBlob.allocate(param);
 
-          assert(!ptr.isNullPointer);
-          _allocatedWhileBinding.add(ptr);
-
-          bindings.sqlite3_bind_blob(_stmt, i, ptr, param.length, nullPtr());
+            bindings.sqlite3_bind_blob(_stmt, i, ptr, param.length, nullPtr());
+            _allocatedWhileBinding.add(ptr);
+          }
+        } else {
+          throw ArgumentError.value(
+            param,
+            'params[$i]',
+            'Allowed parameters must either be null or an int, num, String or '
+                'Uint8List.',
+          );
         }
       }
     }

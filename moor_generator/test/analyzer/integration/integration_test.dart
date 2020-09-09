@@ -5,7 +5,7 @@ import 'package:moor_generator/src/analyzer/runner/results.dart';
 import 'package:moor_generator/src/model/sql_query.dart';
 import 'package:test/test.dart';
 
-import 'utils.dart';
+import '../utils.dart';
 
 void main() {
   TestState state;
@@ -65,7 +65,7 @@ class ProgrammingLanguages extends Table {
   });
 
   tearDownAll(() {
-    state.backend.finish();
+    state.close();
   });
 
   setUp(() async {

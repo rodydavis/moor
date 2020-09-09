@@ -37,35 +37,28 @@ class TodoEntry extends DataClass implements Insertable<TodoEntry> {
           intType.mapFromDatabaseResponse(data['${effectivePrefix}category']),
     );
   }
-  factory TodoEntry.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return TodoEntry(
-      id: serializer.fromJson<int>(json['id']),
-      title: serializer.fromJson<String>(json['title']),
-      content: serializer.fromJson<String>(json['content']),
-      targetDate: serializer.fromJson<DateTime>(json['target_date']),
-      category: serializer.fromJson<int>(json['category']),
-    );
-  }
-  factory TodoEntry.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
-      TodoEntry.fromJson(
-          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-          serializer: serializer);
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'title': serializer.toJson<String>(title),
-      'content': serializer.toJson<String>(content),
-      'target_date': serializer.toJson<DateTime>(targetDate),
-      'category': serializer.toJson<int>(category),
-    };
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || id != null) {
+      map['id'] = Variable<int>(id);
+    }
+    if (!nullToAbsent || title != null) {
+      map['title'] = Variable<String>(title);
+    }
+    if (!nullToAbsent || content != null) {
+      map['content'] = Variable<String>(content);
+    }
+    if (!nullToAbsent || targetDate != null) {
+      map['target_date'] = Variable<DateTime>(targetDate);
+    }
+    if (!nullToAbsent || category != null) {
+      map['category'] = Variable<int>(category);
+    }
+    return map;
   }
 
-  @override
-  TodosTableCompanion createCompanion(bool nullToAbsent) {
+  TodosTableCompanion toCompanion(bool nullToAbsent) {
     return TodosTableCompanion(
       id: id == null && nullToAbsent ? const Value.absent() : Value(id),
       title:
@@ -80,6 +73,34 @@ class TodoEntry extends DataClass implements Insertable<TodoEntry> {
           ? const Value.absent()
           : Value(category),
     );
+  }
+
+  factory TodoEntry.fromJson(Map<String, dynamic> json,
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return TodoEntry(
+      id: serializer.fromJson<int>(json['id']),
+      title: serializer.fromJson<String>(json['title']),
+      content: serializer.fromJson<String>(json['content']),
+      targetDate: serializer.fromJson<DateTime>(json['target_date']),
+      category: serializer.fromJson<int>(json['category']),
+    );
+  }
+  factory TodoEntry.fromJsonString(String encodedJson,
+          {ValueSerializer serializer}) =>
+      TodoEntry.fromJson(
+          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+          serializer: serializer);
+  @override
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'title': serializer.toJson<String>(title),
+      'content': serializer.toJson<String>(content),
+      'target_date': serializer.toJson<DateTime>(targetDate),
+      'category': serializer.toJson<int>(category),
+    };
   }
 
   TodoEntry copyWith(
@@ -145,6 +166,22 @@ class TodosTableCompanion extends UpdateCompanion<TodoEntry> {
     this.targetDate = const Value.absent(),
     this.category = const Value.absent(),
   }) : content = Value(content);
+  static Insertable<TodoEntry> custom({
+    Expression<int> id,
+    Expression<String> title,
+    Expression<String> content,
+    Expression<DateTime> targetDate,
+    Expression<int> category,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (title != null) 'title': title,
+      if (content != null) 'content': content,
+      if (targetDate != null) 'target_date': targetDate,
+      if (category != null) 'category': category,
+    });
+  }
+
   TodosTableCompanion copyWith(
       {Value<int> id,
       Value<String> title,
@@ -158,6 +195,39 @@ class TodosTableCompanion extends UpdateCompanion<TodoEntry> {
       targetDate: targetDate ?? this.targetDate,
       category: category ?? this.category,
     );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (content.present) {
+      map['content'] = Variable<String>(content.value);
+    }
+    if (targetDate.present) {
+      map['target_date'] = Variable<DateTime>(targetDate.value);
+    }
+    if (category.present) {
+      map['category'] = Variable<int>(category.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TodosTableCompanion(')
+          ..write('id: $id, ')
+          ..write('title: $title, ')
+          ..write('content: $content, ')
+          ..write('targetDate: $targetDate, ')
+          ..write('category: $category')
+          ..write(')'))
+        .toString();
   }
 }
 
@@ -231,37 +301,32 @@ class $TodosTableTable extends TodosTable
   @override
   final String actualTableName = 'todos';
   @override
-  VerificationContext validateIntegrity(TodosTableCompanion d,
+  VerificationContext validateIntegrity(Insertable<TodoEntry> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.id.present) {
-      context.handle(_idMeta, id.isAcceptableValue(d.id.value, _idMeta));
-    } else if (id.isRequired && isInserting) {
-      context.missing(_idMeta);
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id'], _idMeta));
     }
-    if (d.title.present) {
+    if (data.containsKey('title')) {
       context.handle(
-          _titleMeta, title.isAcceptableValue(d.title.value, _titleMeta));
-    } else if (title.isRequired && isInserting) {
-      context.missing(_titleMeta);
+          _titleMeta, title.isAcceptableOrUnknown(data['title'], _titleMeta));
     }
-    if (d.content.present) {
+    if (data.containsKey('content')) {
       context.handle(_contentMeta,
-          content.isAcceptableValue(d.content.value, _contentMeta));
-    } else if (content.isRequired && isInserting) {
+          content.isAcceptableOrUnknown(data['content'], _contentMeta));
+    } else if (isInserting) {
       context.missing(_contentMeta);
     }
-    if (d.targetDate.present) {
-      context.handle(_targetDateMeta,
-          targetDate.isAcceptableValue(d.targetDate.value, _targetDateMeta));
-    } else if (targetDate.isRequired && isInserting) {
-      context.missing(_targetDateMeta);
+    if (data.containsKey('target_date')) {
+      context.handle(
+          _targetDateMeta,
+          targetDate.isAcceptableOrUnknown(
+              data['target_date'], _targetDateMeta));
     }
-    if (d.category.present) {
+    if (data.containsKey('category')) {
       context.handle(_categoryMeta,
-          category.isAcceptableValue(d.category.value, _categoryMeta));
-    } else if (category.isRequired && isInserting) {
-      context.missing(_categoryMeta);
+          category.isAcceptableOrUnknown(data['category'], _categoryMeta));
     }
     return context;
   }
@@ -275,27 +340,6 @@ class $TodosTableTable extends TodosTable
   }
 
   @override
-  Map<String, Variable> entityToSql(TodosTableCompanion d) {
-    final map = <String, Variable>{};
-    if (d.id.present) {
-      map['id'] = Variable<int, IntType>(d.id.value);
-    }
-    if (d.title.present) {
-      map['title'] = Variable<String, StringType>(d.title.value);
-    }
-    if (d.content.present) {
-      map['content'] = Variable<String, StringType>(d.content.value);
-    }
-    if (d.targetDate.present) {
-      map['target_date'] = Variable<DateTime, DateTimeType>(d.targetDate.value);
-    }
-    if (d.category.present) {
-      map['category'] = Variable<int, IntType>(d.category.value);
-    }
-    return map;
-  }
-
-  @override
   $TodosTableTable createAlias(String alias) {
     return $TodosTableTable(_db, alias);
   }
@@ -304,7 +348,9 @@ class $TodosTableTable extends TodosTable
 class Category extends DataClass implements Insertable<Category> {
   final int id;
   final String description;
-  Category({@required this.id, @required this.description});
+  final CategoryPriority priority;
+  Category(
+      {@required this.id, @required this.description, @required this.priority});
   factory Category.fromData(Map<String, dynamic> data, GeneratedDatabase db,
       {String prefix}) {
     final effectivePrefix = prefix ?? '';
@@ -314,78 +360,151 @@ class Category extends DataClass implements Insertable<Category> {
       id: intType.mapFromDatabaseResponse(data['${effectivePrefix}id']),
       description:
           stringType.mapFromDatabaseResponse(data['${effectivePrefix}desc']),
+      priority: $CategoriesTable.$converter0.mapToDart(
+          intType.mapFromDatabaseResponse(data['${effectivePrefix}priority'])),
     );
   }
-  factory Category.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return Category(
-      id: serializer.fromJson<int>(json['id']),
-      description: serializer.fromJson<String>(json['description']),
-    );
-  }
-  factory Category.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
-      Category.fromJson(
-          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-          serializer: serializer);
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'description': serializer.toJson<String>(description),
-    };
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || id != null) {
+      map['id'] = Variable<int>(id);
+    }
+    if (!nullToAbsent || description != null) {
+      map['desc'] = Variable<String>(description);
+    }
+    if (!nullToAbsent || priority != null) {
+      final converter = $CategoriesTable.$converter0;
+      map['priority'] = Variable<int>(converter.mapToSql(priority));
+    }
+    return map;
   }
 
-  @override
-  CategoriesCompanion createCompanion(bool nullToAbsent) {
+  CategoriesCompanion toCompanion(bool nullToAbsent) {
     return CategoriesCompanion(
       id: id == null && nullToAbsent ? const Value.absent() : Value(id),
       description: description == null && nullToAbsent
           ? const Value.absent()
           : Value(description),
+      priority: priority == null && nullToAbsent
+          ? const Value.absent()
+          : Value(priority),
     );
   }
 
-  Category copyWith({int id, String description}) => Category(
+  factory Category.fromJson(Map<String, dynamic> json,
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return Category(
+      id: serializer.fromJson<int>(json['id']),
+      description: serializer.fromJson<String>(json['description']),
+      priority: serializer.fromJson<CategoryPriority>(json['priority']),
+    );
+  }
+  factory Category.fromJsonString(String encodedJson,
+          {ValueSerializer serializer}) =>
+      Category.fromJson(
+          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+          serializer: serializer);
+  @override
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'description': serializer.toJson<String>(description),
+      'priority': serializer.toJson<CategoryPriority>(priority),
+    };
+  }
+
+  Category copyWith({int id, String description, CategoryPriority priority}) =>
+      Category(
         id: id ?? this.id,
         description: description ?? this.description,
+        priority: priority ?? this.priority,
       );
   @override
   String toString() {
     return (StringBuffer('Category(')
           ..write('id: $id, ')
-          ..write('description: $description')
+          ..write('description: $description, ')
+          ..write('priority: $priority')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => $mrjf($mrjc(id.hashCode, description.hashCode));
+  int get hashCode =>
+      $mrjf($mrjc(id.hashCode, $mrjc(description.hashCode, priority.hashCode)));
   @override
   bool operator ==(dynamic other) =>
       identical(this, other) ||
       (other is Category &&
           other.id == this.id &&
-          other.description == this.description);
+          other.description == this.description &&
+          other.priority == this.priority);
 }
 
 class CategoriesCompanion extends UpdateCompanion<Category> {
   final Value<int> id;
   final Value<String> description;
+  final Value<CategoryPriority> priority;
   const CategoriesCompanion({
     this.id = const Value.absent(),
     this.description = const Value.absent(),
+    this.priority = const Value.absent(),
   });
   CategoriesCompanion.insert({
     this.id = const Value.absent(),
     @required String description,
+    this.priority = const Value.absent(),
   }) : description = Value(description);
-  CategoriesCompanion copyWith({Value<int> id, Value<String> description}) {
+  static Insertable<Category> custom({
+    Expression<int> id,
+    Expression<String> description,
+    Expression<int> priority,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (description != null) 'desc': description,
+      if (priority != null) 'priority': priority,
+    });
+  }
+
+  CategoriesCompanion copyWith(
+      {Value<int> id,
+      Value<String> description,
+      Value<CategoryPriority> priority}) {
     return CategoriesCompanion(
       id: id ?? this.id,
       description: description ?? this.description,
+      priority: priority ?? this.priority,
     );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (description.present) {
+      map['desc'] = Variable<String>(description.value);
+    }
+    if (priority.present) {
+      final converter = $CategoriesTable.$converter0;
+      map['priority'] = Variable<int>(converter.mapToSql(priority.value));
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CategoriesCompanion(')
+          ..write('id: $id, ')
+          ..write('description: $description, ')
+          ..write('priority: $priority')
+          ..write(')'))
+        .toString();
   }
 }
 
@@ -414,8 +533,17 @@ class $CategoriesTable extends Categories
         $customConstraints: 'NOT NULL UNIQUE');
   }
 
+  final VerificationMeta _priorityMeta = const VerificationMeta('priority');
+  GeneratedIntColumn _priority;
   @override
-  List<GeneratedColumn> get $columns => [id, description];
+  GeneratedIntColumn get priority => _priority ??= _constructPriority();
+  GeneratedIntColumn _constructPriority() {
+    return GeneratedIntColumn('priority', $tableName, false,
+        defaultValue: const Constant(0));
+  }
+
+  @override
+  List<GeneratedColumn> get $columns => [id, description, priority];
   @override
   $CategoriesTable get asDslTable => this;
   @override
@@ -423,20 +551,20 @@ class $CategoriesTable extends Categories
   @override
   final String actualTableName = 'categories';
   @override
-  VerificationContext validateIntegrity(CategoriesCompanion d,
+  VerificationContext validateIntegrity(Insertable<Category> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.id.present) {
-      context.handle(_idMeta, id.isAcceptableValue(d.id.value, _idMeta));
-    } else if (id.isRequired && isInserting) {
-      context.missing(_idMeta);
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id'], _idMeta));
     }
-    if (d.description.present) {
+    if (data.containsKey('desc')) {
       context.handle(_descriptionMeta,
-          description.isAcceptableValue(d.description.value, _descriptionMeta));
-    } else if (description.isRequired && isInserting) {
+          description.isAcceptableOrUnknown(data['desc'], _descriptionMeta));
+    } else if (isInserting) {
       context.missing(_descriptionMeta);
     }
+    context.handle(_priorityMeta, const VerificationResult.success());
     return context;
   }
 
@@ -449,21 +577,12 @@ class $CategoriesTable extends Categories
   }
 
   @override
-  Map<String, Variable> entityToSql(CategoriesCompanion d) {
-    final map = <String, Variable>{};
-    if (d.id.present) {
-      map['id'] = Variable<int, IntType>(d.id.value);
-    }
-    if (d.description.present) {
-      map['desc'] = Variable<String, StringType>(d.description.value);
-    }
-    return map;
-  }
-
-  @override
   $CategoriesTable createAlias(String alias) {
     return $CategoriesTable(_db, alias);
   }
+
+  static TypeConverter<CategoryPriority, int> $converter0 =
+      const EnumIndexConverter<CategoryPriority>(CategoryPriority.values);
 }
 
 class User extends DataClass implements Insertable<User> {
@@ -497,34 +616,28 @@ class User extends DataClass implements Insertable<User> {
           .mapFromDatabaseResponse(data['${effectivePrefix}creation_time']),
     );
   }
-  factory User.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return User(
-      id: serializer.fromJson<int>(json['id']),
-      name: serializer.fromJson<String>(json['name']),
-      isAwesome: serializer.fromJson<bool>(json['isAwesome']),
-      profilePicture: serializer.fromJson<Uint8List>(json['profilePicture']),
-      creationTime: serializer.fromJson<DateTime>(json['creationTime']),
-    );
-  }
-  factory User.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
-      User.fromJson(DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-          serializer: serializer);
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'name': serializer.toJson<String>(name),
-      'isAwesome': serializer.toJson<bool>(isAwesome),
-      'profilePicture': serializer.toJson<Uint8List>(profilePicture),
-      'creationTime': serializer.toJson<DateTime>(creationTime),
-    };
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || id != null) {
+      map['id'] = Variable<int>(id);
+    }
+    if (!nullToAbsent || name != null) {
+      map['name'] = Variable<String>(name);
+    }
+    if (!nullToAbsent || isAwesome != null) {
+      map['is_awesome'] = Variable<bool>(isAwesome);
+    }
+    if (!nullToAbsent || profilePicture != null) {
+      map['profile_picture'] = Variable<Uint8List>(profilePicture);
+    }
+    if (!nullToAbsent || creationTime != null) {
+      map['creation_time'] = Variable<DateTime>(creationTime);
+    }
+    return map;
   }
 
-  @override
-  UsersCompanion createCompanion(bool nullToAbsent) {
+  UsersCompanion toCompanion(bool nullToAbsent) {
     return UsersCompanion(
       id: id == null && nullToAbsent ? const Value.absent() : Value(id),
       name: name == null && nullToAbsent ? const Value.absent() : Value(name),
@@ -538,6 +651,33 @@ class User extends DataClass implements Insertable<User> {
           ? const Value.absent()
           : Value(creationTime),
     );
+  }
+
+  factory User.fromJson(Map<String, dynamic> json,
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return User(
+      id: serializer.fromJson<int>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      isAwesome: serializer.fromJson<bool>(json['isAwesome']),
+      profilePicture: serializer.fromJson<Uint8List>(json['profilePicture']),
+      creationTime: serializer.fromJson<DateTime>(json['creationTime']),
+    );
+  }
+  factory User.fromJsonString(String encodedJson,
+          {ValueSerializer serializer}) =>
+      User.fromJson(DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+          serializer: serializer);
+  @override
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'name': serializer.toJson<String>(name),
+      'isAwesome': serializer.toJson<bool>(isAwesome),
+      'profilePicture': serializer.toJson<Uint8List>(profilePicture),
+      'creationTime': serializer.toJson<DateTime>(creationTime),
+    };
   }
 
   User copyWith(
@@ -604,6 +744,22 @@ class UsersCompanion extends UpdateCompanion<User> {
     this.creationTime = const Value.absent(),
   })  : name = Value(name),
         profilePicture = Value(profilePicture);
+  static Insertable<User> custom({
+    Expression<int> id,
+    Expression<String> name,
+    Expression<bool> isAwesome,
+    Expression<Uint8List> profilePicture,
+    Expression<DateTime> creationTime,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (isAwesome != null) 'is_awesome': isAwesome,
+      if (profilePicture != null) 'profile_picture': profilePicture,
+      if (creationTime != null) 'creation_time': creationTime,
+    });
+  }
+
   UsersCompanion copyWith(
       {Value<int> id,
       Value<String> name,
@@ -617,6 +773,39 @@ class UsersCompanion extends UpdateCompanion<User> {
       profilePicture: profilePicture ?? this.profilePicture,
       creationTime: creationTime ?? this.creationTime,
     );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (isAwesome.present) {
+      map['is_awesome'] = Variable<bool>(isAwesome.value);
+    }
+    if (profilePicture.present) {
+      map['profile_picture'] = Variable<Uint8List>(profilePicture.value);
+    }
+    if (creationTime.present) {
+      map['creation_time'] = Variable<DateTime>(creationTime.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('UsersCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('isAwesome: $isAwesome, ')
+          ..write('profilePicture: $profilePicture, ')
+          ..write('creationTime: $creationTime')
+          ..write(')'))
+        .toString();
   }
 }
 
@@ -686,41 +875,36 @@ class $UsersTable extends Users with TableInfo<$UsersTable, User> {
   @override
   final String actualTableName = 'users';
   @override
-  VerificationContext validateIntegrity(UsersCompanion d,
+  VerificationContext validateIntegrity(Insertable<User> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.id.present) {
-      context.handle(_idMeta, id.isAcceptableValue(d.id.value, _idMeta));
-    } else if (id.isRequired && isInserting) {
-      context.missing(_idMeta);
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id'], _idMeta));
     }
-    if (d.name.present) {
+    if (data.containsKey('name')) {
       context.handle(
-          _nameMeta, name.isAcceptableValue(d.name.value, _nameMeta));
-    } else if (name.isRequired && isInserting) {
+          _nameMeta, name.isAcceptableOrUnknown(data['name'], _nameMeta));
+    } else if (isInserting) {
       context.missing(_nameMeta);
     }
-    if (d.isAwesome.present) {
+    if (data.containsKey('is_awesome')) {
       context.handle(_isAwesomeMeta,
-          isAwesome.isAcceptableValue(d.isAwesome.value, _isAwesomeMeta));
-    } else if (isAwesome.isRequired && isInserting) {
-      context.missing(_isAwesomeMeta);
+          isAwesome.isAcceptableOrUnknown(data['is_awesome'], _isAwesomeMeta));
     }
-    if (d.profilePicture.present) {
+    if (data.containsKey('profile_picture')) {
       context.handle(
           _profilePictureMeta,
-          profilePicture.isAcceptableValue(
-              d.profilePicture.value, _profilePictureMeta));
-    } else if (profilePicture.isRequired && isInserting) {
+          profilePicture.isAcceptableOrUnknown(
+              data['profile_picture'], _profilePictureMeta));
+    } else if (isInserting) {
       context.missing(_profilePictureMeta);
     }
-    if (d.creationTime.present) {
+    if (data.containsKey('creation_time')) {
       context.handle(
           _creationTimeMeta,
-          creationTime.isAcceptableValue(
-              d.creationTime.value, _creationTimeMeta));
-    } else if (creationTime.isRequired && isInserting) {
-      context.missing(_creationTimeMeta);
+          creationTime.isAcceptableOrUnknown(
+              data['creation_time'], _creationTimeMeta));
     }
     return context;
   }
@@ -731,29 +915,6 @@ class $UsersTable extends Users with TableInfo<$UsersTable, User> {
   User map(Map<String, dynamic> data, {String tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : null;
     return User.fromData(data, _db, prefix: effectivePrefix);
-  }
-
-  @override
-  Map<String, Variable> entityToSql(UsersCompanion d) {
-    final map = <String, Variable>{};
-    if (d.id.present) {
-      map['id'] = Variable<int, IntType>(d.id.value);
-    }
-    if (d.name.present) {
-      map['name'] = Variable<String, StringType>(d.name.value);
-    }
-    if (d.isAwesome.present) {
-      map['is_awesome'] = Variable<bool, BoolType>(d.isAwesome.value);
-    }
-    if (d.profilePicture.present) {
-      map['profile_picture'] =
-          Variable<Uint8List, BlobType>(d.profilePicture.value);
-    }
-    if (d.creationTime.present) {
-      map['creation_time'] =
-          Variable<DateTime, DateTimeType>(d.creationTime.value);
-    }
-    return map;
   }
 
   @override
@@ -775,33 +936,45 @@ class SharedTodo extends DataClass implements Insertable<SharedTodo> {
       user: intType.mapFromDatabaseResponse(data['${effectivePrefix}user']),
     );
   }
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || todo != null) {
+      map['todo'] = Variable<int>(todo);
+    }
+    if (!nullToAbsent || user != null) {
+      map['user'] = Variable<int>(user);
+    }
+    return map;
+  }
+
+  SharedTodosCompanion toCompanion(bool nullToAbsent) {
+    return SharedTodosCompanion(
+      todo: todo == null && nullToAbsent ? const Value.absent() : Value(todo),
+      user: user == null && nullToAbsent ? const Value.absent() : Value(user),
+    );
+  }
+
   factory SharedTodo.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
     return SharedTodo(
       todo: serializer.fromJson<int>(json['todo']),
       user: serializer.fromJson<int>(json['user']),
     );
   }
   factory SharedTodo.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
+          {ValueSerializer serializer}) =>
       SharedTodo.fromJson(
           DataClass.parseJson(encodedJson) as Map<String, dynamic>,
           serializer: serializer);
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'todo': serializer.toJson<int>(todo),
       'user': serializer.toJson<int>(user),
     };
-  }
-
-  @override
-  SharedTodosCompanion createCompanion(bool nullToAbsent) {
-    return SharedTodosCompanion(
-      todo: todo == null && nullToAbsent ? const Value.absent() : Value(todo),
-      user: user == null && nullToAbsent ? const Value.absent() : Value(user),
-    );
   }
 
   SharedTodo copyWith({int todo, int user}) => SharedTodo(
@@ -839,11 +1012,42 @@ class SharedTodosCompanion extends UpdateCompanion<SharedTodo> {
     @required int user,
   })  : todo = Value(todo),
         user = Value(user);
+  static Insertable<SharedTodo> custom({
+    Expression<int> todo,
+    Expression<int> user,
+  }) {
+    return RawValuesInsertable({
+      if (todo != null) 'todo': todo,
+      if (user != null) 'user': user,
+    });
+  }
+
   SharedTodosCompanion copyWith({Value<int> todo, Value<int> user}) {
     return SharedTodosCompanion(
       todo: todo ?? this.todo,
       user: user ?? this.user,
     );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (todo.present) {
+      map['todo'] = Variable<int>(todo.value);
+    }
+    if (user.present) {
+      map['user'] = Variable<int>(user.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SharedTodosCompanion(')
+          ..write('todo: $todo, ')
+          ..write('user: $user')
+          ..write(')'))
+        .toString();
   }
 }
 
@@ -885,19 +1089,20 @@ class $SharedTodosTable extends SharedTodos
   @override
   final String actualTableName = 'shared_todos';
   @override
-  VerificationContext validateIntegrity(SharedTodosCompanion d,
+  VerificationContext validateIntegrity(Insertable<SharedTodo> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.todo.present) {
+    final data = instance.toColumns(true);
+    if (data.containsKey('todo')) {
       context.handle(
-          _todoMeta, todo.isAcceptableValue(d.todo.value, _todoMeta));
-    } else if (todo.isRequired && isInserting) {
+          _todoMeta, todo.isAcceptableOrUnknown(data['todo'], _todoMeta));
+    } else if (isInserting) {
       context.missing(_todoMeta);
     }
-    if (d.user.present) {
+    if (data.containsKey('user')) {
       context.handle(
-          _userMeta, user.isAcceptableValue(d.user.value, _userMeta));
-    } else if (user.isRequired && isInserting) {
+          _userMeta, user.isAcceptableOrUnknown(data['user'], _userMeta));
+    } else if (isInserting) {
       context.missing(_userMeta);
     }
     return context;
@@ -909,18 +1114,6 @@ class $SharedTodosTable extends SharedTodos
   SharedTodo map(Map<String, dynamic> data, {String tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : null;
     return SharedTodo.fromData(data, _db, prefix: effectivePrefix);
-  }
-
-  @override
-  Map<String, Variable> entityToSql(SharedTodosCompanion d) {
-    final map = <String, Variable>{};
-    if (d.todo.present) {
-      map['todo'] = Variable<int, IntType>(d.todo.value);
-    }
-    if (d.user.present) {
-      map['user'] = Variable<int, IntType>(d.user.value);
-    }
-    return map;
   }
 
   @override
@@ -954,31 +1147,23 @@ class TableWithoutPKData extends DataClass
           stringType.mapFromDatabaseResponse(data['${effectivePrefix}custom'])),
     );
   }
-  factory TableWithoutPKData.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return TableWithoutPKData(
-      notReallyAnId: serializer.fromJson<int>(json['notReallyAnId']),
-      someFloat: serializer.fromJson<double>(json['someFloat']),
-      custom: serializer.fromJson<MyCustomObject>(json['custom']),
-    );
-  }
-  factory TableWithoutPKData.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
-      TableWithoutPKData.fromJson(
-          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-          serializer: serializer);
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return <String, dynamic>{
-      'notReallyAnId': serializer.toJson<int>(notReallyAnId),
-      'someFloat': serializer.toJson<double>(someFloat),
-      'custom': serializer.toJson<MyCustomObject>(custom),
-    };
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || notReallyAnId != null) {
+      map['not_really_an_id'] = Variable<int>(notReallyAnId);
+    }
+    if (!nullToAbsent || someFloat != null) {
+      map['some_float'] = Variable<double>(someFloat);
+    }
+    if (!nullToAbsent || custom != null) {
+      final converter = $TableWithoutPKTable.$converter0;
+      map['custom'] = Variable<String>(converter.mapToSql(custom));
+    }
+    return map;
   }
 
-  @override
-  TableWithoutPKCompanion createCompanion(bool nullToAbsent) {
+  TableWithoutPKCompanion toCompanion(bool nullToAbsent) {
     return TableWithoutPKCompanion(
       notReallyAnId: notReallyAnId == null && nullToAbsent
           ? const Value.absent()
@@ -989,6 +1174,30 @@ class TableWithoutPKData extends DataClass
       custom:
           custom == null && nullToAbsent ? const Value.absent() : Value(custom),
     );
+  }
+
+  factory TableWithoutPKData.fromJson(Map<String, dynamic> json,
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return TableWithoutPKData(
+      notReallyAnId: serializer.fromJson<int>(json['notReallyAnId']),
+      someFloat: serializer.fromJson<double>(json['someFloat']),
+      custom: serializer.fromJson<MyCustomObject>(json['custom']),
+    );
+  }
+  factory TableWithoutPKData.fromJsonString(String encodedJson,
+          {ValueSerializer serializer}) =>
+      TableWithoutPKData.fromJson(
+          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+          serializer: serializer);
+  @override
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'notReallyAnId': serializer.toJson<int>(notReallyAnId),
+      'someFloat': serializer.toJson<double>(someFloat),
+      'custom': serializer.toJson<MyCustomObject>(custom),
+    };
   }
 
   TableWithoutPKData copyWith(
@@ -1032,10 +1241,21 @@ class TableWithoutPKCompanion extends UpdateCompanion<TableWithoutPKData> {
   TableWithoutPKCompanion.insert({
     @required int notReallyAnId,
     @required double someFloat,
-    @required MyCustomObject custom,
+    this.custom = const Value.absent(),
   })  : notReallyAnId = Value(notReallyAnId),
-        someFloat = Value(someFloat),
-        custom = Value(custom);
+        someFloat = Value(someFloat);
+  static Insertable<TableWithoutPKData> createCustom({
+    Expression<int> notReallyAnId,
+    Expression<double> someFloat,
+    Expression<String> custom,
+  }) {
+    return RawValuesInsertable({
+      if (notReallyAnId != null) 'not_really_an_id': notReallyAnId,
+      if (someFloat != null) 'some_float': someFloat,
+      if (custom != null) 'custom': custom,
+    });
+  }
+
   TableWithoutPKCompanion copyWith(
       {Value<int> notReallyAnId,
       Value<double> someFloat,
@@ -1045,6 +1265,32 @@ class TableWithoutPKCompanion extends UpdateCompanion<TableWithoutPKData> {
       someFloat: someFloat ?? this.someFloat,
       custom: custom ?? this.custom,
     );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (notReallyAnId.present) {
+      map['not_really_an_id'] = Variable<int>(notReallyAnId.value);
+    }
+    if (someFloat.present) {
+      map['some_float'] = Variable<double>(someFloat.value);
+    }
+    if (custom.present) {
+      final converter = $TableWithoutPKTable.$converter0;
+      map['custom'] = Variable<String>(converter.mapToSql(custom.value));
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TableWithoutPKCompanion(')
+          ..write('notReallyAnId: $notReallyAnId, ')
+          ..write('someFloat: $someFloat, ')
+          ..write('custom: $custom')
+          ..write(')'))
+        .toString();
   }
 }
 
@@ -1088,7 +1334,7 @@ class $TableWithoutPKTable extends TableWithoutPK
       'custom',
       $tableName,
       false,
-    );
+    )..clientDefault = _uuid.v4;
   }
 
   @override
@@ -1100,21 +1346,22 @@ class $TableWithoutPKTable extends TableWithoutPK
   @override
   final String actualTableName = 'table_without_p_k';
   @override
-  VerificationContext validateIntegrity(TableWithoutPKCompanion d,
+  VerificationContext validateIntegrity(Insertable<TableWithoutPKData> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.notReallyAnId.present) {
+    final data = instance.toColumns(true);
+    if (data.containsKey('not_really_an_id')) {
       context.handle(
           _notReallyAnIdMeta,
-          notReallyAnId.isAcceptableValue(
-              d.notReallyAnId.value, _notReallyAnIdMeta));
-    } else if (notReallyAnId.isRequired && isInserting) {
+          notReallyAnId.isAcceptableOrUnknown(
+              data['not_really_an_id'], _notReallyAnIdMeta));
+    } else if (isInserting) {
       context.missing(_notReallyAnIdMeta);
     }
-    if (d.someFloat.present) {
+    if (data.containsKey('some_float')) {
       context.handle(_someFloatMeta,
-          someFloat.isAcceptableValue(d.someFloat.value, _someFloatMeta));
-    } else if (someFloat.isRequired && isInserting) {
+          someFloat.isAcceptableOrUnknown(data['some_float'], _someFloatMeta));
+    } else if (isInserting) {
       context.missing(_someFloatMeta);
     }
     context.handle(_customMeta, const VerificationResult.success());
@@ -1130,110 +1377,113 @@ class $TableWithoutPKTable extends TableWithoutPK
   }
 
   @override
-  Map<String, Variable> entityToSql(TableWithoutPKCompanion d) {
-    final map = <String, Variable>{};
-    if (d.notReallyAnId.present) {
-      map['not_really_an_id'] = Variable<int, IntType>(d.notReallyAnId.value);
+  $TableWithoutPKTable createAlias(String alias) {
+    return $TableWithoutPKTable(_db, alias);
+  }
+
+  static TypeConverter<MyCustomObject, String> $converter0 =
+      const CustomConverter();
+}
+
+class PureDefault extends DataClass implements Insertable<PureDefault> {
+  final String txt;
+  PureDefault({this.txt});
+  factory PureDefault.fromData(Map<String, dynamic> data, GeneratedDatabase db,
+      {String prefix}) {
+    final effectivePrefix = prefix ?? '';
+    final stringType = db.typeSystem.forDartType<String>();
+    return PureDefault(
+      txt: stringType.mapFromDatabaseResponse(data['${effectivePrefix}insert']),
+    );
+  }
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || txt != null) {
+      map['insert'] = Variable<String>(txt);
     }
-    if (d.someFloat.present) {
-      map['some_float'] = Variable<double, RealType>(d.someFloat.value);
-    }
-    if (d.custom.present) {
-      final converter = $TableWithoutPKTable.$converter0;
-      map['custom'] =
-          Variable<String, StringType>(converter.mapToSql(d.custom.value));
+    return map;
+  }
+
+  PureDefaultsCompanion toCompanion(bool nullToAbsent) {
+    return PureDefaultsCompanion(
+      txt: txt == null && nullToAbsent ? const Value.absent() : Value(txt),
+    );
+  }
+
+  factory PureDefault.fromJson(Map<String, dynamic> json,
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return PureDefault(
+      txt: serializer.fromJson<String>(json['txt']),
+    );
+  }
+  factory PureDefault.fromJsonString(String encodedJson,
+          {ValueSerializer serializer}) =>
+      PureDefault.fromJson(
+          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+          serializer: serializer);
+  @override
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'txt': serializer.toJson<String>(txt),
+    };
+  }
+
+  PureDefault copyWith({String txt}) => PureDefault(
+        txt: txt ?? this.txt,
+      );
+  @override
+  String toString() {
+    return (StringBuffer('PureDefault(')..write('txt: $txt')..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => $mrjf(txt.hashCode);
+  @override
+  bool operator ==(dynamic other) =>
+      identical(this, other) || (other is PureDefault && other.txt == this.txt);
+}
+
+class PureDefaultsCompanion extends UpdateCompanion<PureDefault> {
+  final Value<String> txt;
+  const PureDefaultsCompanion({
+    this.txt = const Value.absent(),
+  });
+  PureDefaultsCompanion.insert({
+    this.txt = const Value.absent(),
+  });
+  static Insertable<PureDefault> custom({
+    Expression<String> txt,
+  }) {
+    return RawValuesInsertable({
+      if (txt != null) 'insert': txt,
+    });
+  }
+
+  PureDefaultsCompanion copyWith({Value<String> txt}) {
+    return PureDefaultsCompanion(
+      txt: txt ?? this.txt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (txt.present) {
+      map['insert'] = Variable<String>(txt.value);
     }
     return map;
   }
 
   @override
-  $TableWithoutPKTable createAlias(String alias) {
-    return $TableWithoutPKTable(_db, alias);
-  }
-
-  static CustomConverter $converter0 = const CustomConverter();
-}
-
-class PureDefault extends DataClass implements Insertable<PureDefault> {
-  final int id;
-  final String txt;
-  PureDefault({@required this.id, this.txt});
-  factory PureDefault.fromData(Map<String, dynamic> data, GeneratedDatabase db,
-      {String prefix}) {
-    final effectivePrefix = prefix ?? '';
-    final intType = db.typeSystem.forDartType<int>();
-    final stringType = db.typeSystem.forDartType<String>();
-    return PureDefault(
-      id: intType.mapFromDatabaseResponse(data['${effectivePrefix}id']),
-      txt: stringType.mapFromDatabaseResponse(data['${effectivePrefix}insert']),
-    );
-  }
-  factory PureDefault.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return PureDefault(
-      id: serializer.fromJson<int>(json['id']),
-      txt: serializer.fromJson<String>(json['txt']),
-    );
-  }
-  factory PureDefault.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
-      PureDefault.fromJson(
-          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-          serializer: serializer);
-  @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'txt': serializer.toJson<String>(txt),
-    };
-  }
-
-  @override
-  PureDefaultsCompanion createCompanion(bool nullToAbsent) {
-    return PureDefaultsCompanion(
-      id: id == null && nullToAbsent ? const Value.absent() : Value(id),
-      txt: txt == null && nullToAbsent ? const Value.absent() : Value(txt),
-    );
-  }
-
-  PureDefault copyWith({int id, String txt}) => PureDefault(
-        id: id ?? this.id,
-        txt: txt ?? this.txt,
-      );
-  @override
   String toString() {
-    return (StringBuffer('PureDefault(')
-          ..write('id: $id, ')
+    return (StringBuffer('PureDefaultsCompanion(')
           ..write('txt: $txt')
           ..write(')'))
         .toString();
-  }
-
-  @override
-  int get hashCode => $mrjf($mrjc(id.hashCode, txt.hashCode));
-  @override
-  bool operator ==(dynamic other) =>
-      identical(this, other) ||
-      (other is PureDefault && other.id == this.id && other.txt == this.txt);
-}
-
-class PureDefaultsCompanion extends UpdateCompanion<PureDefault> {
-  final Value<int> id;
-  final Value<String> txt;
-  const PureDefaultsCompanion({
-    this.id = const Value.absent(),
-    this.txt = const Value.absent(),
-  });
-  PureDefaultsCompanion.insert({
-    this.id = const Value.absent(),
-    this.txt = const Value.absent(),
-  });
-  PureDefaultsCompanion copyWith({Value<int> id, Value<String> txt}) {
-    return PureDefaultsCompanion(
-      id: id ?? this.id,
-      txt: txt ?? this.txt,
-    );
   }
 }
 
@@ -1242,15 +1492,6 @@ class $PureDefaultsTable extends PureDefaults
   final GeneratedDatabase _db;
   final String _alias;
   $PureDefaultsTable(this._db, [this._alias]);
-  final VerificationMeta _idMeta = const VerificationMeta('id');
-  GeneratedIntColumn _id;
-  @override
-  GeneratedIntColumn get id => _id ??= _constructId();
-  GeneratedIntColumn _constructId() {
-    return GeneratedIntColumn('id', $tableName, false,
-        hasAutoIncrement: true, declaredAsPrimaryKey: true);
-  }
-
   final VerificationMeta _txtMeta = const VerificationMeta('txt');
   GeneratedTextColumn _txt;
   @override
@@ -1264,7 +1505,7 @@ class $PureDefaultsTable extends PureDefaults
   }
 
   @override
-  List<GeneratedColumn> get $columns => [id, txt];
+  List<GeneratedColumn> get $columns => [txt];
   @override
   $PureDefaultsTable get asDslTable => this;
   @override
@@ -1272,40 +1513,23 @@ class $PureDefaultsTable extends PureDefaults
   @override
   final String actualTableName = 'pure_defaults';
   @override
-  VerificationContext validateIntegrity(PureDefaultsCompanion d,
+  VerificationContext validateIntegrity(Insertable<PureDefault> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.id.present) {
-      context.handle(_idMeta, id.isAcceptableValue(d.id.value, _idMeta));
-    } else if (id.isRequired && isInserting) {
-      context.missing(_idMeta);
-    }
-    if (d.txt.present) {
-      context.handle(_txtMeta, txt.isAcceptableValue(d.txt.value, _txtMeta));
-    } else if (txt.isRequired && isInserting) {
-      context.missing(_txtMeta);
+    final data = instance.toColumns(true);
+    if (data.containsKey('insert')) {
+      context.handle(
+          _txtMeta, txt.isAcceptableOrUnknown(data['insert'], _txtMeta));
     }
     return context;
   }
 
   @override
-  Set<GeneratedColumn> get $primaryKey => {id};
+  Set<GeneratedColumn> get $primaryKey => {txt};
   @override
   PureDefault map(Map<String, dynamic> data, {String tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : null;
     return PureDefault.fromData(data, _db, prefix: effectivePrefix);
-  }
-
-  @override
-  Map<String, Variable> entityToSql(PureDefaultsCompanion d) {
-    final map = <String, Variable>{};
-    if (d.id.present) {
-      map['id'] = Variable<int, IntType>(d.id.value);
-    }
-    if (d.txt.present) {
-      map['insert'] = Variable<String, StringType>(d.txt.value);
-    }
-    return map;
   }
 
   @override
@@ -1333,34 +1557,22 @@ abstract class _$TodoDb extends GeneratedDatabase {
       _pureDefaults ??= $PureDefaultsTable(this);
   SomeDao _someDao;
   SomeDao get someDao => _someDao ??= SomeDao(this as TodoDb);
-  AllTodosWithCategoryResult _rowToAllTodosWithCategoryResult(QueryRow row) {
-    return AllTodosWithCategoryResult(
-      id: row.readInt('id'),
-      title: row.readString('title'),
-      content: row.readString('content'),
-      targetDate: row.readDateTime('target_date'),
-      category: row.readInt('category'),
-      catId: row.readInt('catId'),
-      catDesc: row.readString('catDesc'),
-    );
-  }
-
-  Selectable<AllTodosWithCategoryResult> allTodosWithCategoryQuery() {
-    return customSelectQuery(
+  Selectable<AllTodosWithCategoryResult> allTodosWithCategory() {
+    return customSelect(
         'SELECT t.*, c.id as catId, c."desc" as catDesc FROM todos t INNER JOIN categories c ON c.id = t.category',
         variables: [],
-        readsFrom: {
-          categories,
-          todosTable
-        }).map(_rowToAllTodosWithCategoryResult);
-  }
-
-  Future<List<AllTodosWithCategoryResult>> allTodosWithCategory() {
-    return allTodosWithCategoryQuery().get();
-  }
-
-  Stream<List<AllTodosWithCategoryResult>> watchAllTodosWithCategory() {
-    return allTodosWithCategoryQuery().watch();
+        readsFrom: {categories, todosTable}).map((QueryRow row) {
+      return AllTodosWithCategoryResult(
+        row: row,
+        id: row.readInt('id'),
+        title: row.readString('title'),
+        content: row.readString('content'),
+        targetDate: row.readDateTime('target_date'),
+        category: row.readInt('category'),
+        catId: row.readInt('catId'),
+        catDesc: row.readString('catDesc'),
+      );
+    });
   }
 
   Future<int> deleteTodoById(int var1) {
@@ -1368,24 +1580,15 @@ abstract class _$TodoDb extends GeneratedDatabase {
       'DELETE FROM todos WHERE id = ?',
       variables: [Variable.withInt(var1)],
       updates: {todosTable},
+      updateKind: UpdateKind.delete,
     );
   }
 
-  TodoEntry _rowToTodoEntry(QueryRow row) {
-    return TodoEntry(
-      id: row.readInt('id'),
-      title: row.readString('title'),
-      content: row.readString('content'),
-      targetDate: row.readDateTime('target_date'),
-      category: row.readInt('category'),
-    );
-  }
-
-  Selectable<TodoEntry> withInQuery(String var1, String var2, List<int> var3) {
+  Selectable<TodoEntry> withIn(String var1, String var2, List<int> var3) {
     var $arrayStartIndex = 3;
     final expandedvar3 = $expandVar($arrayStartIndex, var3.length);
     $arrayStartIndex += var3.length;
-    return customSelectQuery(
+    return customSelect(
         'SELECT * FROM todos WHERE title = ?2 OR id IN ($expandedvar3) OR title = ?1',
         variables: [
           Variable.withString(var1),
@@ -1394,35 +1597,18 @@ abstract class _$TodoDb extends GeneratedDatabase {
         ],
         readsFrom: {
           todosTable
-        }).map(_rowToTodoEntry);
+        }).map(todosTable.mapFromRow);
   }
 
-  Future<List<TodoEntry>> withIn(String var1, String var2, List<int> var3) {
-    return withInQuery(var1, var2, var3).get();
-  }
-
-  Stream<List<TodoEntry>> watchWithIn(
-      String var1, String var2, List<int> var3) {
-    return withInQuery(var1, var2, var3).watch();
-  }
-
-  Selectable<TodoEntry> searchQuery(int id) {
-    return customSelectQuery(
+  Selectable<TodoEntry> search(int id) {
+    return customSelect(
         'SELECT * FROM todos WHERE CASE WHEN -1 = :id THEN 1 ELSE id = :id END',
         variables: [Variable.withInt(id)],
-        readsFrom: {todosTable}).map(_rowToTodoEntry);
+        readsFrom: {todosTable}).map(todosTable.mapFromRow);
   }
 
-  Future<List<TodoEntry>> search(int id) {
-    return searchQuery(id).get();
-  }
-
-  Stream<List<TodoEntry>> watchSearch(int id) {
-    return searchQuery(id).watch();
-  }
-
-  Selectable<MyCustomObject> findCustomQuery() {
-    return customSelectQuery(
+  Selectable<MyCustomObject> findCustom() {
+    return customSelect(
             'SELECT custom FROM table_without_p_k WHERE some_float < 10',
             variables: [],
             readsFrom: {tableWithoutPK})
@@ -1430,16 +1616,10 @@ abstract class _$TodoDb extends GeneratedDatabase {
             .mapToDart(row.readString('custom')));
   }
 
-  Future<List<MyCustomObject>> findCustom() {
-    return findCustomQuery().get();
-  }
-
-  Stream<List<MyCustomObject>> watchFindCustom() {
-    return findCustomQuery().watch();
-  }
-
   @override
-  List<TableInfo> get allTables => [
+  Iterable<TableInfo> get allTables => allSchemaEntities.whereType<TableInfo>();
+  @override
+  List<DatabaseSchemaEntity> get allSchemaEntities => [
         todosTable,
         categories,
         users,
@@ -1449,7 +1629,7 @@ abstract class _$TodoDb extends GeneratedDatabase {
       ];
 }
 
-class AllTodosWithCategoryResult {
+class AllTodosWithCategoryResult extends CustomResultSet {
   final int id;
   final String title;
   final String content;
@@ -1458,6 +1638,7 @@ class AllTodosWithCategoryResult {
   final int catId;
   final String catDesc;
   AllTodosWithCategoryResult({
+    @required QueryRow row,
     this.id,
     this.title,
     this.content,
@@ -1465,7 +1646,7 @@ class AllTodosWithCategoryResult {
     this.category,
     this.catId,
     this.catDesc,
-  });
+  }) : super(row);
   @override
   int get hashCode => $mrjf($mrjc(
       id.hashCode,
@@ -1488,6 +1669,19 @@ class AllTodosWithCategoryResult {
           other.category == this.category &&
           other.catId == this.catId &&
           other.catDesc == this.catDesc);
+  @override
+  String toString() {
+    return (StringBuffer('AllTodosWithCategoryResult(')
+          ..write('id: $id, ')
+          ..write('title: $title, ')
+          ..write('content: $content, ')
+          ..write('targetDate: $targetDate, ')
+          ..write('category: $category, ')
+          ..write('catId: $catId, ')
+          ..write('catDesc: $catDesc')
+          ..write(')'))
+        .toString();
+  }
 }
 
 // **************************************************************************
@@ -1495,31 +1689,13 @@ class AllTodosWithCategoryResult {
 // **************************************************************************
 
 mixin _$SomeDaoMixin on DatabaseAccessor<TodoDb> {
-  $UsersTable get users => db.users;
-  $SharedTodosTable get sharedTodos => db.sharedTodos;
-  $TodosTableTable get todosTable => db.todosTable;
-  TodoEntry _rowToTodoEntry(QueryRow row) {
-    return TodoEntry(
-      id: row.readInt('id'),
-      title: row.readString('title'),
-      content: row.readString('content'),
-      targetDate: row.readDateTime('target_date'),
-      category: row.readInt('category'),
-    );
-  }
-
-  Selectable<TodoEntry> todosForUserQuery(int user) {
-    return customSelectQuery(
+  $UsersTable get users => attachedDatabase.users;
+  $SharedTodosTable get sharedTodos => attachedDatabase.sharedTodos;
+  $TodosTableTable get todosTable => attachedDatabase.todosTable;
+  Selectable<TodoEntry> todosForUser(int user) {
+    return customSelect(
         'SELECT t.* FROM todos t INNER JOIN shared_todos st ON st.todo = t.id INNER JOIN users u ON u.id = st.user WHERE u.id = :user',
         variables: [Variable.withInt(user)],
-        readsFrom: {todosTable, sharedTodos, users}).map(_rowToTodoEntry);
-  }
-
-  Future<List<TodoEntry>> todosForUser(int user) {
-    return todosForUserQuery(user).get();
-  }
-
-  Stream<List<TodoEntry>> watchTodosForUser(int user) {
-    return todosForUserQuery(user).watch();
+        readsFrom: {todosTable, sharedTodos, users}).map(todosTable.mapFromRow);
   }
 }

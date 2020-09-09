@@ -6,17 +6,28 @@ class EngineOptions {
   /// extensions enabled.
   final bool useMoorExtensions;
 
-  /// Enables functions declared in the `json1` module for analysis
-  final bool enableJson1;
+  /// Whether the old type inference algorithm should be used.
+  ///
+  /// Defaults to false.
+  final bool useLegacyTypeInference;
 
   /// All [Extension]s that have been enabled in this sql engine.
   final List<Extension> enabledExtensions;
 
   final List<FunctionHandler> _addedFunctionHandlers = [];
+
+  /// A map from lowercase function names to the associated handler.
   final Map<String, FunctionHandler> addedFunctions = {};
 
-  EngineOptions(
-      this.useMoorExtensions, this.enableJson1, this.enabledExtensions);
+  /// A map from lowercase function names (where the function is a table-valued
+  /// function) to the associated handler.
+  final Map<String, TableValuedFunctionHandler> addedTableFunctions = {};
+
+  EngineOptions({
+    this.useMoorExtensions = false,
+    this.enabledExtensions = const [],
+    this.useLegacyTypeInference = false,
+  });
 
   void addFunctionHandler(FunctionHandler handler) {
     _addedFunctionHandlers.add(handler);
@@ -24,5 +35,9 @@ class EngineOptions {
     for (final function in handler.functionNames) {
       addedFunctions[function.toLowerCase()] = handler;
     }
+  }
+
+  void addTableValuedFunctionHandler(TableValuedFunctionHandler handler) {
+    addedTableFunctions[handler.functionName.toLowerCase()] = handler;
   }
 }

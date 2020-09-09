@@ -1,10 +1,19 @@
 part of 'parser.dart';
 
+const _startJoinOperators = [
+  TokenType.natural,
+  TokenType.left,
+  TokenType.inner,
+  TokenType.cross,
+  TokenType.join,
+  TokenType.comma,
+];
+
 mixin CrudParser on ParserBase {
   CrudStatement _crud() {
     final withClause = _withClause();
 
-    if (_check(TokenType.select)) {
+    if (_check(TokenType.select) || _check(TokenType.$values)) {
       return select(withClause: withClause);
     } else if (_check(TokenType.delete)) {
       return _deleteStmt(withClause);
@@ -119,7 +128,8 @@ mixin CrudParser on ParserBase {
     }
   }
 
-  SelectStatement _selectNoCompound([WithClause withClause]) {
+  SelectStatementNoCompound _selectNoCompound([WithClause withClause]) {
+    if (_peek.type == TokenType.$values) return _valuesSelect(withClause);
     if (!_match(const [TokenType.select])) return null;
     final selectToken = _previous;
 
@@ -157,6 +167,19 @@ mixin CrudParser on ParserBase {
     )..setSpan(first, _previous);
   }
 
+  ValuesSelectStatement _valuesSelect([WithClause withClause]) {
+    if (!_matchOne(TokenType.$values)) return null;
+    final firstToken = _previous;
+
+    final tuples = <Tuple>[];
+    do {
+      tuples.add(_consumeTuple() as Tuple);
+    } while (_matchOne(TokenType.comma));
+
+    return ValuesSelectStatement(tuples, withClause: withClause)
+      ..setSpan(firstToken, _previous);
+  }
+
   CompoundSelectPart _compoundSelectPart() {
     if (_match(
         const [TokenType.union, TokenType.intersect, TokenType.except])) {
@@ -189,22 +212,27 @@ mixin CrudParser on ParserBase {
   /// Parses a [ResultColumn] or throws if none is found.
   /// https://www.sqlite.org/syntax/result-column.html
   ResultColumn _resultColumn() {
-    if (_match(const [TokenType.star])) {
+    if (_matchOne(TokenType.star)) {
       return StarResultColumn(null)..setSpan(_previous, _previous);
     }
 
     final positionBefore = _current;
 
-    if (_match(const [TokenType.identifier])) {
+    if (_matchOne(TokenType.identifier)) {
       // two options. the identifier could be followed by ".*", in which case
       // we have a star result column. If it's followed by anything else, it can
       // still refer to a column in a table as part of a expression
       // result column
-      final identifier = _previous;
+      final identifier = _previous as IdentifierToken;
 
-      if (_match(const [TokenType.dot]) && _match(const [TokenType.star])) {
-        return StarResultColumn((identifier as IdentifierToken).identifier)
-          ..setSpan(identifier, _previous);
+      if (_matchOne(TokenType.dot)) {
+        if (_matchOne(TokenType.star)) {
+          return StarResultColumn(identifier.identifier)
+            ..setSpan(identifier, _previous);
+        } else if (enableMoorExtensions && _matchOne(TokenType.doubleStar)) {
+          return NestedStarResultColumn(identifier.identifier)
+            ..setSpan(identifier, _previous);
+        }
       }
 
       // not a star result column. go back and parse the expression.
@@ -235,36 +263,38 @@ mixin CrudParser on ParserBase {
     }
   }
 
-  List<Queryable> _from() {
-    if (!_matchOne(TokenType.from)) return [];
+  Queryable /*?*/ _from() {
+    if (!_matchOne(TokenType.from)) return null;
 
     // Can either be a list of <TableOrSubquery> or a join. Joins also start
     // with a TableOrSubquery, so let's first parse that.
     final start = _tableOrSubquery();
-    // parse join, if it is one
-    final join = _joinClause(start);
-    if (join != null) {
-      return [join];
-    }
-
-    // not a join. Keep the TableOrSubqueries coming!
-    final queries = [start];
-    while (_matchOne(TokenType.comma)) {
-      queries.add(_tableOrSubquery());
-    }
-
-    return queries;
+    // parse join, if there is one
+    return _joinClause(start) ?? start;
   }
 
   TableOrSubquery _tableOrSubquery() {
-    //  this is what we're parsing: https://www.sqlite.org/syntax/table-or-subquery.html
-    // we currently only support regular tables and nested selects
+    // this is what we're parsing: https://www.sqlite.org/syntax/table-or-subquery.html
+    // we currently only support regular tables, table functions and nested
+    // selects
     final tableRef = _tableReference();
     if (tableRef != null) {
+      // this is a bit hacky. If the table reference only consists of one
+      // identifer and it's followed by a (, it's a table-valued function
+      if (tableRef.as == null && _matchOne(TokenType.leftParen)) {
+        final params = _functionParameters();
+        _consume(TokenType.rightParen, 'Expected closing parenthesis');
+        final alias = _as();
+
+        return TableValuedFunction(tableRef.tableName, params,
+            as: alias?.identifier)
+          ..setSpan(tableRef.first, _previous);
+      }
+
       return tableRef;
     } else if (_matchOne(TokenType.leftParen)) {
       final first = _previous;
-      final innerStmt = _selectNoCompound();
+      final innerStmt = select();
       _consume(TokenType.rightParen,
           'Expected a right bracket to terminate the inner select');
 
@@ -278,9 +308,10 @@ mixin CrudParser on ParserBase {
   }
 
   TableReference _tableReference() {
+    _suggestHint(const TableNameDescription());
     if (_matchOne(TokenType.identifier)) {
       // ignore the schema name, it's not supported. Besides that, we're on the
-      // first branch in the diagram here
+      // first branch in the diagram here https://www.sqlite.org/syntax/table-or-subquery.html
       final firstToken = _previous as IdentifierToken;
       final tableName = firstToken.identifier;
       final alias = _as();
@@ -292,7 +323,7 @@ mixin CrudParser on ParserBase {
   }
 
   JoinClause _joinClause(TableOrSubquery start) {
-    var operator = _parseJoinOperatorNoComma();
+    var operator = _parseJoinOperator();
     if (operator == null) {
       return null;
     }
@@ -327,24 +358,21 @@ mixin CrudParser on ParserBase {
       )..setSpan(first, _previous));
 
       // parse the next operator, if there is more than one join
-      if (_matchOne(TokenType.comma)) {
-        operator = [TokenType.comma];
-      } else {
-        operator = _parseJoinOperatorNoComma();
-      }
+      operator = _parseJoinOperator();
     }
 
     return JoinClause(primary: start, joins: joins)
       ..setSpan(start.first, _previous);
   }
 
-  /// Parses https://www.sqlite.org/syntax/join-operator.html, minus the comma.
-  List<TokenType> _parseJoinOperatorNoComma() {
-    if (_match(_startOperators)) {
+  /// Parses https://www.sqlite.org/syntax/join-operator.html
+  List<TokenType> _parseJoinOperator() {
+    if (_match(_startJoinOperators)) {
       final operators = [_previous.type];
 
-      if (_previous.type == TokenType.join) {
-        // just join, without any specific operators
+      if (_previous.type == TokenType.join ||
+          _previous.type == TokenType.comma) {
+        // just join or comma, without any specific operators
         return operators;
       } else {
         // natural is a prefix, another operator can follow.
@@ -365,7 +393,7 @@ mixin CrudParser on ParserBase {
   }
 
   /// Parses https://www.sqlite.org/syntax/join-constraint.html
-  JoinConstraint _joinConstraint() {
+  JoinConstraint /*?*/ _joinConstraint() {
     if (_matchOne(TokenType.on)) {
       return OnConstraint(expression: expression());
     } else if (_matchOne(TokenType.using)) {
@@ -381,8 +409,9 @@ mixin CrudParser on ParserBase {
       _consume(TokenType.rightParen, 'Expected an closing paranthesis');
 
       return UsingConstraint(columnNames: columnNames);
+    } else {
+      return null;
     }
-    _error('Expected a constraint with ON or USING');
   }
 
   /// Parses a where clause if there is one at the current position
@@ -457,15 +486,27 @@ mixin CrudParser on ParserBase {
     final expr = expression();
     final mode = _orderingModeOrNull();
 
-    // if there is no ASC or DESC after a Dart placeholder, we can upgrade the
-    // expression to an ordering term placeholder and let users define the mode
-    // at runtime.
-    if (mode == null && expr is DartExpressionPlaceholder) {
+    OrderingBehaviorForNulls nulls;
+
+    if (_matchOne(TokenType.nulls)) {
+      if (_matchOne(TokenType.first)) {
+        nulls = OrderingBehaviorForNulls.first;
+      } else if (_matchOne(TokenType.last)) {
+        nulls = OrderingBehaviorForNulls.last;
+      } else {
+        _error('Expected FIRST or LAST here');
+      }
+    }
+
+    // if there is nothing (asc/desc, nulls first/last) after a Dart
+    // placeholder, we can upgrade the expression to an ordering term
+    // placeholder and let users define the mode at runtime.
+    if (mode == null && nulls == null && expr is DartExpressionPlaceholder) {
       return DartOrderingTermPlaceholder(name: expr.name)
         ..setSpan(expr.first, expr.last);
     }
 
-    return OrderingTerm(expression: expr, orderingMode: mode)
+    return OrderingTerm(expression: expr, orderingMode: mode, nulls: nulls)
       ..setSpan(expr.first, _previous);
   }
 
@@ -548,6 +589,19 @@ mixin CrudParser on ParserBase {
     final table = _tableReference();
     _consume(TokenType.set, 'Expected SET after the table name');
 
+    final set = _setComponents();
+
+    final where = _where();
+    return UpdateStatement(
+      withClause: withClause,
+      or: failureMode,
+      table: table,
+      set: set,
+      where: where,
+    )..setSpan(withClause?.first ?? updateToken, _previous);
+  }
+
+  List<SetComponent> _setComponents() {
     final set = <SetComponent>[];
     do {
       final columnName =
@@ -562,14 +616,7 @@ mixin CrudParser on ParserBase {
         ..setSpan(columnName, _previous));
     } while (_matchOne(TokenType.comma));
 
-    final where = _where();
-    return UpdateStatement(
-      withClause: withClause,
-      or: failureMode,
-      table: table,
-      set: set,
-      where: where,
-    )..setSpan(withClause?.first ?? updateToken, _previous);
+    return set;
   }
 
   InsertStatement _insertStmt([WithClause withClause]) {
@@ -618,6 +665,7 @@ mixin CrudParser on ParserBase {
           'Expected clpsing parenthesis after column list');
     }
     final source = _insertSource();
+    final upsert = _upsertClauseOrNull();
 
     return InsertStatement(
       withClause: withClause,
@@ -625,24 +673,78 @@ mixin CrudParser on ParserBase {
       table: table,
       targetColumns: targetColumns,
       source: source,
+      upsert: upsert,
     )..setSpan(withClause?.first ?? firstToken, _previous);
   }
 
   InsertSource _insertSource() {
     if (_matchOne(TokenType.$values)) {
+      final first = _previous;
       final values = <Tuple>[];
       do {
         // it will be a tuple, we don't turn on "orSubQuery"
         values.add(_consumeTuple() as Tuple);
       } while (_matchOne(TokenType.comma));
-      return ValuesSource(values);
+
+      return ValuesSource(values)..setSpan(first, _previous);
     } else if (_matchOne(TokenType.$default)) {
+      final first = _previous;
       _consume(TokenType.$values, 'Expected DEFAULT VALUES');
-      return const DefaultValues();
+      return DefaultValues()..setSpan(first, _previous);
     } else {
+      final first = _previous;
       return SelectInsertSource(
-          _fullSelect() ?? _error('Expeced a select statement'));
+        _fullSelect() ?? _error('Expeced a select statement'),
+      )..setSpan(first, _previous);
     }
+  }
+
+  UpsertClause _upsertClauseOrNull() {
+    if (!_matchOne(TokenType.on)) return null;
+
+    final first = _previous;
+    _consume(TokenType.conflict, 'Expected CONFLICT keyword for upsert clause');
+
+    List<IndexedColumn> indexedColumns;
+    Expression where;
+    if (_matchOne(TokenType.leftParen)) {
+      indexedColumns = _indexedColumns();
+
+      _consume(TokenType.rightParen, 'Expected closing paren here');
+      if (_matchOne(TokenType.where)) {
+        where = expression();
+      }
+    }
+
+    _consume(TokenType.$do,
+        'Expected DO, followed by the action (NOTHING or UPDATE SET)');
+
+    UpsertAction action;
+    if (_matchOne(TokenType.nothing)) {
+      action = DoNothing()..setSpan(_previous, _previous);
+    } else if (_check(TokenType.update)) {
+      action = _doUpdate();
+    }
+
+    return UpsertClause(
+      onColumns: indexedColumns,
+      where: where,
+      action: action,
+    )..setSpan(first, _previous);
+  }
+
+  DoUpdate _doUpdate() {
+    _consume(TokenType.update, 'Expected UPDATE SET keyword here');
+    final first = _previous;
+    _consume(TokenType.set, 'Expected UPDATE SET keyword here');
+
+    final set = _setComponents();
+    Expression where;
+    if (_matchOne(TokenType.where)) {
+      where = expression();
+    }
+
+    return DoUpdate(set, where: where)..setSpan(first, _previous);
   }
 
   @override
@@ -705,7 +807,7 @@ mixin CrudParser on ParserBase {
     } else {
       // <expr> FOLLOWING is not supported in the short-hand syntax
       start = _frameBoundary(isStartBounds: true, parseExprFollowing: false);
-      end = const FrameBoundary.currentRow();
+      end = FrameBoundary.currentRow();
     }
 
     var exclude = ExcludeMode.noOthers;
@@ -736,17 +838,17 @@ mixin CrudParser on ParserBase {
     // the CURRENT ROW boundary is supported for all modes
     if (_matchOne(TokenType.current)) {
       _consume(TokenType.row, 'Expected ROW to finish CURRENT ROW boundary');
-      return const FrameBoundary.currentRow();
+      return FrameBoundary.currentRow();
     }
     if (_matchOne(TokenType.unbounded)) {
       // if this is a start boundary, only UNBOUNDED PRECEDING makes sense.
       // Otherwise, only UNBOUNDED FOLLOWING makes sense
       if (isStartBounds) {
         _consume(TokenType.preceding, 'Expected UNBOUNDED PRECEDING');
-        return const FrameBoundary.unboundedPreceding();
+        return FrameBoundary.unboundedPreceding();
       } else {
         _consume(TokenType.following, 'Expected UNBOUNDED FOLLOWING');
-        return const FrameBoundary.unboundedFollowing();
+        return FrameBoundary.unboundedFollowing();
       }
     }
 

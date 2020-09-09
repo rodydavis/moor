@@ -1,11 +1,20 @@
-import 'package:analyzer/dart/ast/ast.dart';
+import 'dart:convert';
+import 'package:analyzer/dart/analysis/results.dart';
+import 'package:analyzer/dart/analysis/session.dart';
 import 'package:analyzer/dart/element/element.dart';
+import 'package:analyzer/dart/element/type.dart';
 import 'package:build/build.dart' hide log;
 import 'package:build/build.dart' as build show log;
 import 'package:logging/logging.dart';
+import 'package:moor_generator/src/analyzer/options.dart';
 import 'package:moor_generator/src/backends/backend.dart';
+import 'package:moor_generator/src/backends/build/serialized_types.dart';
 
 class BuildBackend extends Backend {
+  final MoorOptions options;
+
+  BuildBackend([this.options = const MoorOptions()]);
+
   BuildBackendTask createTask(BuildStep step) {
     return BuildBackendTask(step, this);
   }
@@ -20,8 +29,16 @@ class BuildBackend extends Backend {
 class BuildBackendTask extends BackendTask {
   final BuildStep step;
   final BuildBackend backend;
+  final TypeDeserializer typeDeserializer;
 
-  BuildBackendTask(this.step, this.backend);
+  final Map<AssetId, ResolvedLibraryResult> _cachedResults = {};
+
+  /// The analysis session might be invalidated every time we resolve a new
+  /// library, so we grab a new one instead of using `LibraryElement.session`.
+  AnalysisSession _currentAnalysisSession;
+
+  BuildBackendTask(this.step, this.backend)
+      : typeDeserializer = TypeDeserializer(step);
 
   @override
   Uri get entrypoint => step.inputId.uri;
@@ -38,9 +55,10 @@ class BuildBackendTask extends BackendTask {
   @override
   Future<LibraryElement> resolveDart(Uri uri) async {
     try {
-      final library = await step.resolver.libraryFor(_resolve(uri));
-      // older versions of the resolver used to return null instead of throwing
-      if (library == null) throw NotALibraryException(uri);
+      final asset = _resolve(uri);
+      final library = await step.resolver.libraryFor(asset);
+      _currentAnalysisSession = library.session;
+
       return library;
     } on NonLibraryAssetException catch (_) {
       throw NotALibraryException(uri);
@@ -48,8 +66,39 @@ class BuildBackendTask extends BackendTask {
   }
 
   @override
-  Future<CompilationUnit> parseSource(String dart) async {
-    return null;
+  Future<ElementDeclarationResult> loadElementDeclaration(
+      Element element) async {
+    // prefer to use a cached value in case the session changed because another
+    // dart file was read...
+    final assetId = await step.resolver.assetIdForElement(element);
+    final result = _cachedResults[assetId];
+
+    if (result != null) {
+      return result.getElementDeclaration(element);
+    } else {
+      _currentAnalysisSession ??= element.session;
+
+      // Transform element to new session if necessary, also updating the
+      // session if it was invalidated by another builder
+      var library = element.library;
+      if (library.session != _currentAnalysisSession) {
+        try {
+          library = await _currentAnalysisSession
+              .getLibraryByUri(assetId.uri.toString());
+        } on InconsistentAnalysisException {
+          library = await step.resolver.libraryFor(assetId);
+          _currentAnalysisSession = library.session;
+        }
+      }
+
+      final result =
+          await _currentAnalysisSession.getResolvedLibraryByElement(library);
+      _cachedResults[assetId] = result;
+
+      // Note: getElementDeclaration works by comparing source offsets, so
+      // element.session != session is not a problem in this case.
+      return result.getElementDeclaration(element);
+    }
   }
 
   @override
@@ -58,5 +107,24 @@ class BuildBackendTask extends BackendTask {
   @override
   Future<bool> exists(Uri uri) {
     return step.canRead(_resolve(uri));
+  }
+
+  @override
+  Future<DartType> resolveTypeOf(Uri context, String dartExpression) async {
+    // we try to detect all calls of resolveTypeOf in an earlier builder and
+    // prepare the result. See PreprocessBuilder for details
+    final preparedHelperFile =
+        _resolve(context).changeExtension('.dart_in_moor');
+
+    if (!await step.canRead(preparedHelperFile)) {
+      throw AssetNotFoundException(preparedHelperFile);
+    }
+
+    final content = await step.readAsString(preparedHelperFile);
+    final json = jsonDecode(content) as Map<String, dynamic>;
+    final serializedType = json[dartExpression] as Map<String, dynamic>;
+
+    return typeDeserializer
+        .deserialize(SerializedType.fromJson(serializedType));
   }
 }

@@ -1,4 +1,5 @@
 import 'package:meta/meta.dart';
+import 'package:moor_generator/moor_generator.dart';
 import 'package:moor_generator/src/analyzer/options.dart';
 
 /// Manages a tree structure which we use to generate code.
@@ -119,5 +120,20 @@ class DartScope {
 
   bool isSuperScope(DartScope other) {
     return other._id >= _id;
+  }
+}
+
+extension WriterUtilsForOptions on MoorOptions {
+  String get fieldModifier => generateMutableClasses ? '' : 'final';
+}
+
+extension WriterUtilsForColumns on MoorColumn {
+  /// Adds an `this.` prefix is the [dartGetterName] is in [locals].
+  String thisIfNeeded(Set<String> locals) {
+    if (locals.contains(dartGetterName)) {
+      return 'this.$dartGetterName';
+    }
+
+    return dartGetterName;
   }
 }

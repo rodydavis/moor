@@ -31,7 +31,7 @@ void main() {
 
     final firstColumn = select.columns[0] as ExpressionResultColumn;
     final secondColumn = select.columns[1] as ExpressionResultColumn;
-    final from = select.from[0] as TableReference;
+    final from = select.from as TableReference;
 
     expect((firstColumn.expression as Reference).resolved, id);
     expect((secondColumn.expression as Reference).resolved, content);
@@ -39,6 +39,35 @@ void main() {
 
     final where = select.where as BinaryExpression;
     expect((where.left as Reference).resolved, id);
+  });
+
+  test('resolves columns from views', () {
+    final engine = SqlEngine()..registerTable(demoTable);
+
+    final viewCtx = engine.analyze('CREATE VIEW my_view (foo, bar) AS '
+        'SELECT * FROM demo;');
+    engine.registerView(engine.schemaReader
+        .readView(viewCtx, viewCtx.root as CreateViewStatement));
+
+    final context = engine.analyze('SELECT * FROM my_view');
+    expect(context.errors, isEmpty);
+
+    final resolvedColumns = (context.root as SelectStatement).resolvedColumns;
+    expect(resolvedColumns.map((e) => e.name), ['foo', 'bar']);
+    expect(
+      resolvedColumns.map((e) => context.typeOf(e).type.type),
+      [BasicType.int, BasicType.text],
+    );
+  });
+
+  test("resolved columns don't include moor nested results", () {
+    final engine = SqlEngine(EngineOptions(useMoorExtensions: true))
+      ..registerTable(demoTable);
+
+    final context = engine.analyze('SELECT demo.** FROM demo;');
+
+    expect(context.errors, isEmpty);
+    expect((context.root as SelectStatement).resolvedColumns, isEmpty);
   });
 
   test('resolves the column for order by clauses', () {
@@ -61,6 +90,24 @@ void main() {
         token(TokenType.star),
         Reference(tableName: 'd', columnName: 'id'),
       ),
+    );
+  });
+
+  test('resolves columns from nested results', () {
+    final engine = SqlEngine(EngineOptions(useMoorExtensions: true))
+      ..registerTable(demoTable)
+      ..registerTable(anotherTable);
+
+    final context = engine.analyze('SELECT SUM(*) AS rst FROM '
+        '(SELECT COUNT(*) FROM demo UNION ALL SELECT COUNT(*) FROM tbl);');
+
+    expect(context.errors, isEmpty);
+
+    final select = context.root as SelectStatement;
+    expect(select.resolvedColumns, hasLength(1));
+    expect(
+      context.typeOf(select.resolvedColumns.single).type.type,
+      BasicType.int,
     );
   });
 
@@ -125,7 +172,7 @@ SELECT row_number() OVER wnd FROM demo
         partitionBy: [Reference(columnName: 'content')],
         frameSpec: FrameSpec(
           type: FrameType.groups,
-          start: const FrameBoundary.currentRow(),
+          start: FrameBoundary.currentRow(),
           excludeMode: ExcludeMode.ties,
         ),
       ),

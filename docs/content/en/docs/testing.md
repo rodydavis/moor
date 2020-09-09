@@ -5,7 +5,7 @@ description: Guide on writing unit tests for moor databases
 
 Flutter apps using moor can always be tested with [integration tests](https://flutter.dev/docs/cookbook/testing/integration/introduction)
 running on a real device. This guide focusses on writing unit tests for a database written in moor.
-Those tests can be run and debugged on your computer without additional setup, you don't a
+Those tests can be run and debugged on your computer without additional setup, you don't need a
 physical device to run them.
 
 ## Setup
@@ -13,12 +13,12 @@ In addition to the moor dependencies you already have, add `moor_ffi` as a dev d
 as a regular dependency, you can skip this.
 ```yaml
 dev_dependencies:
-  moor_ffi: ^0.1.0 # or latest version
+  moor_ffi: ^0.5.0 # or latest version
 ```
 
 For this guide, we're going to test a very simple database that stores user names. The only important change from a regular moor
 database is the constructor: We make the `QueryExecutor` argument explicit instead of having a no-args constructor that passes
-a `FlutterQueryExector` to the superclass.
+a `FlutterQueryExecutor` to the superclass.
 ```dart
 import 'package:moor/moor.dart';
 
@@ -56,11 +56,12 @@ class MyDatabase extends _$MyDatabase {
 We can't distribute an sqlite installation as a pub package (at least
 not as something that works outside of a Flutter build), so you need
 to ensure that you have the sqlite3 shared library installed on your
-system. On macOS, it's installed by default. On Linux, you can use the
-`libsqlite3-dev` package on Ubuntu and the `sqlite3` package on Arch
-(other distros will have similar packages). I'm not sure how it works
-on Windows, but [downloading sqlite](https://www.sqlite.org/download.html)
-and extracting `sqlite3.dll` into your application folder might work.
+system. On macOS, it's installed by default.
+On Linux, you can use the `libsqlite3-dev` package on Ubuntu and the 
+`sqlite3` package on Arch (other distros will have similar packages).
+On Windows, you can [download sqlite](https://www.sqlite.org/download.html)
+and extract `sqlite3.dll` into a folder that's in your `PATH` environment
+variable.
 {{% /alert %}}
 
 ## Writing tests

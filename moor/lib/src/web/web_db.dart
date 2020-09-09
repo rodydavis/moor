@@ -1,23 +1,41 @@
 part of 'package:moor/moor_web.dart';
 
+/// Signature of a function that asynchronously initializes a web database if it
+/// doesn't exist.
+/// The bytes returned should represent a valid sqlite3 database file.
+typedef CreateWebDatabase = Future<Uint8List> Function();
+
 /// Experimental moor backend for the web. To use this platform, you need to
 /// include the latest version of `sql.js` in your html.
 class WebDatabase extends DelegatedDatabase {
   /// A database executor that works on the web.
-  WebDatabase(String name, {bool logStatements = false})
-      : super(_WebDelegate(name),
+  ///
+  /// [name] can be used to identify multiple databases. The optional
+  /// [initializer] can be used to initialize the database if it doesn't exist.
+  WebDatabase(String name,
+      {bool logStatements = false, CreateWebDatabase initializer})
+      : super(_WebDelegate(MoorWebStorage(name), initializer),
+            logStatements: logStatements, isSequential: true);
+
+  /// A database executor that works on the web.
+  ///
+  /// The [storage] parameter controls how the data will be stored. The default
+  /// constructor of [MoorWebStorage] will use local storage for that, but an
+  /// IndexedDB-based implementation is available via.
+  WebDatabase.withStorage(MoorWebStorage storage,
+      {bool logStatements = false, CreateWebDatabase initializer})
+      : super(_WebDelegate(storage, initializer),
             logStatements: logStatements, isSequential: true);
 }
 
 class _WebDelegate extends DatabaseDelegate {
-  final String name;
+  final MoorWebStorage storage;
+  final CreateWebDatabase initializer;
   SqlJsDatabase _db;
-
-  String get _persistenceKey => 'moor_db_str_$name';
 
   bool _inTransaction = false;
 
-  _WebDelegate(this.name);
+  _WebDelegate(this.storage, this.initializer);
 
   @override
   set isInTransaction(bool value) {
@@ -33,34 +51,50 @@ class _WebDelegate extends DatabaseDelegate {
   bool get isInTransaction => _inTransaction;
 
   @override
-  final TransactionDelegate transactionDelegate = const NoTransactionDelegate();
+  TransactionDelegate get transactionDelegate => const NoTransactionDelegate();
 
   @override
-  DbVersionDelegate get versionDelegate => _WebVersionDelegate(name);
+  DbVersionDelegate get versionDelegate =>
+      _versionDelegate ??= _WebVersionDelegate(this);
+  DbVersionDelegate _versionDelegate;
 
   @override
   bool get isOpen => _db != null;
 
   @override
-  Future<void> open([GeneratedDatabase db]) async {
+  Future<void> open([QueryExecutorUser db]) async {
     final dbVersion = db.schemaVersion;
     assert(dbVersion >= 1, 'Database schema version needs to be at least 1');
 
     final module = await initSqlJs();
-    final restored = _restoreDb();
+
+    await storage.open();
+    var restored = await storage.restore();
+
+    if (restored == null && initializer != null) {
+      restored = await initializer();
+      await storage.store(restored);
+    }
+
     _db = module.createDatabase(restored);
   }
 
   @override
-  Future<void> runBatched(List<BatchedStatement> statements) {
-    for (final stmt in statements) {
-      final prepared = _db.prepare(stmt.sql);
+  Future<void> runBatched(BatchedStatements statements) {
+    final preparedStatements = [
+      for (final stmt in statements.statements) _db.prepare(stmt),
+    ];
 
-      for (final args in stmt.variables) {
-        prepared
-          ..executeWith(args)
-          ..step();
-      }
+    for (final application in statements.arguments) {
+      final stmt = preparedStatements[application.statementIndex];
+
+      stmt
+        ..executeWith(application.arguments)
+        ..step();
+    }
+
+    for (final prepared in preparedStatements) {
+      prepared.free();
     }
     return _handlePotentialUpdate();
   }
@@ -105,65 +139,64 @@ class _WebDelegate extends DatabaseDelegate {
   }
 
   @override
-  Future<void> close() {
-    _storeDb();
+  Future<void> close() async {
+    await _storeDb();
     _db?.close();
-    return Future.value();
+    await storage.close();
   }
 
   @override
   void notifyDatabaseOpened(OpeningDetails details) {
-    if (details.hadUpgrade | details.wasCreated) {
+    if (details.hadUpgrade || details.wasCreated) {
       _storeDb();
     }
   }
 
   /// Saves the database if the last statement changed rows. As a side-effect,
   /// saving the database resets the `last_insert_id` counter in sqlite.
-  Future<int> _handlePotentialUpdate() {
+  Future<int> _handlePotentialUpdate() async {
     final modified = _db.lastModifiedRows();
     if (modified > 0) {
-      _storeDb();
+      await _storeDb();
     }
-    return Future.value(modified);
+    return modified;
   }
 
-  Uint8List _restoreDb() {
-    final raw = window.localStorage[_persistenceKey];
-    if (raw != null) {
-      return bin2str.decode(raw);
-    }
-    return null;
-  }
-
-  void _storeDb() {
+  Future<void> _storeDb() async {
     if (!isInTransaction) {
-      final data = _db.export();
-      final binStr = bin2str.encode(data);
-      window.localStorage[_persistenceKey] = binStr;
+      await storage.store(_db.export());
     }
   }
 }
 
 class _WebVersionDelegate extends DynamicVersionDelegate {
-  String get _versionKey => 'moor_db_version_$name';
-  final String name;
+  final _WebDelegate delegate;
 
-  _WebVersionDelegate(this.name);
+  _WebVersionDelegate(this.delegate);
+
+  // Note: Earlier moor versions used to store the database version in a special
+  // field in local storage (moor_db_version_<name>). Since 2.3, we instead use
+  // the user_version pragma, but still need to keep backwards compatibility.
 
   @override
   Future<int> get schemaVersion async {
-    if (!window.localStorage.containsKey(_versionKey)) {
-      return null;
+    final storage = delegate.storage;
+    int version;
+    if (storage is _CustomSchemaVersionSave) {
+      version = storage.schemaVersion;
     }
-    final versionStr = window.localStorage[_versionKey];
 
-    return int.tryParse(versionStr);
+    return version ?? delegate._db.userVersion;
   }
 
   @override
-  Future<void> setSchemaVersion(int version) {
-    window.localStorage[_versionKey] = version.toString();
-    return Future.value();
+  Future<void> setSchemaVersion(int version) async {
+    final storage = delegate.storage;
+
+    if (storage is _CustomSchemaVersionSave) {
+      storage.schemaVersion = version;
+    }
+
+    delegate._db.userVersion = version;
   }
 }

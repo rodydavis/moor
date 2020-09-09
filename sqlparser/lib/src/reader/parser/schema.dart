@@ -1,21 +1,33 @@
 part of 'parser.dart';
 
 mixin SchemaParser on ParserBase {
-  TableInducingStatement _createTable() {
+  SchemaStatement _create() {
     if (!_matchOne(TokenType.create)) return null;
+
+    if (_check(TokenType.table) || _check(TokenType.virtual)) {
+      return _createTable();
+    } else if (_check(TokenType.trigger)) {
+      return _createTrigger();
+    } else if (_check(TokenType.unique) || _check(TokenType.$index)) {
+      return _createIndex();
+    } else if (_check(TokenType.view)) {
+      return _createView();
+    }
+
+    return null;
+  }
+
+  /// Parses a `CREATE TABLE` statement, assuming that the `CREATE` token has
+  /// already been matched.
+  TableInducingStatement _createTable() {
     final first = _previous;
+    assert(first.type == TokenType.create);
 
     final virtual = _matchOne(TokenType.virtual);
 
     _consume(TokenType.table, 'Expected TABLE keyword here');
 
-    var ifNotExists = false;
-
-    if (_matchOne(TokenType.$if)) {
-      _consume(TokenType.not, 'Expected IF to be followed by NOT EXISTS');
-      _consume(TokenType.exists, 'Expected IF NOT to be followed by EXISTS');
-      ifNotExists = true;
-    }
+    final ifNotExists = _ifNotExists();
 
     final tableIdentifier = _consumeIdentifier('Expected a table name');
 
@@ -33,17 +45,26 @@ mixin SchemaParser on ParserBase {
     var encounteredTableConstraint = false;
 
     do {
-      final tableConstraint = _tableConstraintOrNull();
+      try {
+        final tableConstraint = _tableConstraintOrNull();
 
-      if (tableConstraint != null) {
-        encounteredTableConstraint = true;
-        tableConstraints.add(tableConstraint);
-      } else {
-        if (encounteredTableConstraint) {
-          _error('Expected another table constraint');
+        if (tableConstraint != null) {
+          encounteredTableConstraint = true;
+          tableConstraints.add(tableConstraint);
         } else {
-          columns.add(_columnDefinition());
+          if (encounteredTableConstraint) {
+            _error('Expected another table constraint');
+          } else {
+            columns.add(_columnDefinition());
+          }
         }
+      } on ParsingError {
+        // if we're at the closing bracket, don't try to parse another column
+        if (_check(TokenType.rightParen)) break;
+        // error while parsing a column definition or table constraint. We try
+        // to recover to the next comma.
+        _synchronize(TokenType.comma);
+        if (_check(TokenType.rightParen)) break;
       }
     } while (_matchOne(TokenType.comma));
 
@@ -139,7 +160,8 @@ mixin SchemaParser on ParserBase {
       overriddenDataClassName: moorDataClassName,
     )
       ..setSpan(first, _previous)
-      ..tableNameToken = nameToken;
+      ..tableNameToken = nameToken
+      ..moduleNameToken = moduleName;
   }
 
   String _overriddenDataClassName() {
@@ -150,6 +172,195 @@ mixin SchemaParser on ParserBase {
     return null;
   }
 
+  /// Parses a "CREATE TRIGGER" statement, assuming that the create token has
+  /// already been consumed.
+  CreateTriggerStatement _createTrigger() {
+    final create = _previous;
+    assert(create.type == TokenType.create);
+
+    if (!_matchOne(TokenType.trigger)) return null;
+
+    final ifNotExists = _ifNotExists();
+    final trigger = _consumeIdentifier('Expected a name for the identifier');
+
+    TriggerMode mode;
+    if (_matchOne(TokenType.before)) {
+      mode = TriggerMode.before;
+    } else if (_matchOne(TokenType.after)) {
+      mode = TriggerMode.after;
+    } else {
+      const msg = 'Expected BEFORE, AFTER or INSTEAD OF';
+      _consume(TokenType.instead, msg);
+      _consume(TokenType.of, msg);
+      mode = TriggerMode.insteadOf;
+    }
+
+    TriggerTarget target;
+    if (_matchOne(TokenType.delete)) {
+      target = DeleteTarget()
+        ..deleteToken = _previous
+        ..setSpan(_previous, _previous);
+    } else if (_matchOne(TokenType.insert)) {
+      target = InsertTarget()
+        ..insertToken = _previous
+        ..setSpan(_previous, _previous);
+    } else {
+      final updateToken = _consume(
+          TokenType.update, 'Expected DELETE, INSERT or UPDATE as a trigger');
+      final names = <Reference>[];
+
+      if (_matchOne(TokenType.of)) {
+        do {
+          final name = _consumeIdentifier('Expected column name in ON clause');
+          final reference = Reference(columnName: name.identifier)
+            ..setSpan(name, name);
+          names.add(reference);
+        } while (_matchOne(TokenType.comma));
+      }
+
+      target = UpdateTarget(names)
+        ..updateToken = updateToken
+        ..setSpan(updateToken, _previous);
+    }
+
+    _consume(TokenType.on, 'Expected ON');
+    _suggestHint(const TableNameDescription());
+    final nameToken = _consumeIdentifier('Expected a table name');
+    final tableRef = TableReference(nameToken.identifier)
+      ..setSpan(nameToken, nameToken);
+
+    if (_matchOne(TokenType.$for)) {
+      const msg = 'Expected FOR EACH ROW';
+      _consume(TokenType.each, msg);
+      _consume(TokenType.row, msg);
+    }
+
+    Expression when;
+    if (_matchOne(TokenType.when)) {
+      when = expression();
+    }
+
+    final block = _consumeBlock();
+
+    return CreateTriggerStatement(
+      ifNotExists: ifNotExists,
+      triggerName: trigger.identifier,
+      mode: mode,
+      target: target,
+      onTable: tableRef,
+      when: when,
+      action: block,
+    )
+      ..setSpan(create, _previous)
+      ..triggerNameToken = trigger;
+  }
+
+  /// Parses a [CreateViewStatement]. The `CREATE` token must have already been
+  /// accepted.
+  CreateViewStatement _createView() {
+    final create = _previous;
+    assert(create.type == TokenType.create);
+
+    if (!_matchOne(TokenType.view)) return null;
+
+    final ifNotExists = _ifNotExists();
+    final name = _consumeIdentifier('Expected a name for this view');
+
+    List<String> columnNames;
+    if (_matchOne(TokenType.leftParen)) {
+      columnNames = _columnNames();
+      _consume(TokenType.rightParen, 'Expected closing bracket');
+    }
+
+    _consume(TokenType.as, 'Expected AS SELECT');
+
+    final query = _fullSelect();
+
+    return CreateViewStatement(
+      ifNotExists: ifNotExists,
+      viewName: name.identifier,
+      columns: columnNames,
+      query: query,
+    )
+      ..viewNameToken = name
+      ..setSpan(create, _previous);
+  }
+
+  /// Parses a [CreateIndexStatement]. The `CREATE` token must have already been
+  /// accepted.
+  CreateIndexStatement _createIndex() {
+    final create = _previous;
+    assert(create.type == TokenType.create);
+
+    final unique = _matchOne(TokenType.unique);
+    if (!_matchOne(TokenType.$index)) return null;
+
+    final ifNotExists = _ifNotExists();
+    final name = _consumeIdentifier('Expected a name for this index');
+
+    _consume(TokenType.on, 'Expected ON table');
+    _suggestHint(const TableNameDescription());
+    final nameToken = _consumeIdentifier('Expected a table name');
+    final tableRef = TableReference(nameToken.identifier)
+      ..setSpan(nameToken, nameToken);
+
+    _consume(TokenType.leftParen, 'Expected indexed columns in parentheses');
+
+    final indexes = _indexedColumns();
+
+    _consume(TokenType.rightParen, 'Expected closing bracket');
+
+    Expression where;
+    if (_matchOne(TokenType.where)) {
+      where = expression();
+    }
+
+    return CreateIndexStatement(
+      indexName: name.identifier,
+      unique: unique,
+      ifNotExists: ifNotExists,
+      on: tableRef,
+      columns: indexes,
+      where: where,
+    )
+      ..nameToken = name
+      ..setSpan(create, _previous);
+  }
+
+  List<String> _columnNames() {
+    final columns = <String>[];
+    do {
+      final colName = _consumeIdentifier('Expected a name for this column');
+
+      columns.add(colName.identifier);
+    } while (_matchOne(TokenType.comma));
+
+    return columns;
+  }
+
+  @override
+  List<IndexedColumn> _indexedColumns() {
+    final indexes = <IndexedColumn>[];
+    do {
+      final expr = expression();
+      final mode = _orderingModeOrNull();
+
+      indexes.add(IndexedColumn(expr, mode)..setSpan(expr.first, _previous));
+    } while (_matchOne(TokenType.comma));
+
+    return indexes;
+  }
+
+  /// Parses `IF NOT EXISTS` | epsilon
+  bool _ifNotExists() {
+    if (_matchOne(TokenType.$if)) {
+      _consume(TokenType.not, 'Expected IF to be followed by NOT EXISTS');
+      _consume(TokenType.exists, 'Expected IF NOT to be followed by EXISTS');
+      return true;
+    }
+    return false;
+  }
+
   ColumnDefinition _columnDefinition() {
     final name = _consume(TokenType.identifier, 'Expected a column name')
         as IdentifierToken;
@@ -158,8 +369,7 @@ mixin SchemaParser on ParserBase {
     String typeName;
 
     if (typeTokens != null) {
-      final typeSpan = typeTokens.first.span.expand(typeTokens.last.span);
-      typeName = typeSpan.text;
+      typeName = typeTokens.lexeme;
     }
 
     final constraints = <ColumnConstraint>[];
@@ -178,6 +388,7 @@ mixin SchemaParser on ParserBase {
       ..nameToken = name;
   }
 
+  @override
   List<Token> _typeName() {
     // sqlite doesn't really define what a type name is and has very loose rules
     // at turning them into a type affinity. We support this pattern:
@@ -199,7 +410,7 @@ mixin SchemaParser on ParserBase {
       }
 
       _consume(TokenType.rightParen,
-          'Expected closing paranthesis to finish type name');
+          'Expected closing parenthesis to finish type name');
       typeNames.add(_previous);
     }
 
@@ -209,7 +420,7 @@ mixin SchemaParser on ParserBase {
   ColumnConstraint _columnConstraint({bool orNull = false}) {
     final first = _peek;
 
-    final resolvedName = _constraintNameOrNull();
+    final resolvedName = _constraintNameOrNull()?.identifier;
 
     if (_matchOne(TokenType.primary)) {
       _suggestHint(HintDescription.token(TokenType.key));
@@ -296,8 +507,10 @@ mixin SchemaParser on ParserBase {
 
   TableConstraint _tableConstraintOrNull() {
     final first = _peek;
-    final name = _constraintNameOrNull();
+    final nameToken = _constraintNameOrNull();
+    final name = nameToken?.identifier;
 
+    TableConstraint result;
     if (_match([TokenType.unique, TokenType.primary])) {
       final isPrimaryKey = _previous.type == TokenType.primary;
 
@@ -308,21 +521,27 @@ mixin SchemaParser on ParserBase {
       final columns = _listColumnsInParentheses(allowEmpty: false);
       final conflictClause = _conflictClauseOrNull();
 
-      return KeyClause(name,
+      result = KeyClause(name,
           isPrimaryKey: isPrimaryKey,
           indexedColumns: columns,
-          onConflict: conflictClause)
-        ..setSpan(first, _previous);
+          onConflict: conflictClause);
     } else if (_matchOne(TokenType.check)) {
       final expr = _expressionInParentheses();
-      return CheckTable(name, expr)..setSpan(first, _previous);
+      result = CheckTable(name, expr);
     } else if (_matchOne(TokenType.foreign)) {
       _consume(TokenType.key, 'Expected KEY to start FOREIGN KEY clause');
       final columns = _listColumnsInParentheses(allowEmpty: false);
       final clause = _foreignKeyClause();
 
-      return ForeignKeyTableConstraint(name, columns: columns, clause: clause)
-        ..setSpan(first, _previous);
+      result =
+          ForeignKeyTableConstraint(name, columns: columns, clause: clause);
+    }
+
+    if (result != null) {
+      result
+        ..setSpan(first, _previous)
+        ..nameToken = nameToken;
+      return result;
     }
 
     if (name != null) {
@@ -333,10 +552,10 @@ mixin SchemaParser on ParserBase {
     return null;
   }
 
-  String _constraintNameOrNull() {
+  IdentifierToken _constraintNameOrNull() {
     if (_matchOne(TokenType.constraint)) {
       final name = _consumeIdentifier('Expect a name for the constraint here');
-      return name.identifier;
+      return name;
     }
     return null;
   }
@@ -399,11 +618,33 @@ mixin SchemaParser on ParserBase {
       }
     }
 
+    DeferrableClause deferrable;
+    if (_checkWithNot(TokenType.deferrable)) {
+      final first = _peekNext;
+
+      final not = _matchOne(TokenType.not);
+      _consume(TokenType.deferrable);
+
+      InitialDeferrableMode mode;
+      if (_matchOne(TokenType.initially)) {
+        if (_matchOne(TokenType.deferred)) {
+          mode = InitialDeferrableMode.deferred;
+        } else if (_matchOne(TokenType.immediate)) {
+          mode = InitialDeferrableMode.immediate;
+        } else {
+          _error('Expected DEFERRED or IMMEDIATE here');
+        }
+      }
+
+      deferrable = DeferrableClause(not, mode)..setSpan(first, _previous);
+    }
+
     return ForeignKeyClause(
       foreignTable: foreignTableName,
       columnNames: columnNames,
       onUpdate: onUpdate,
       onDelete: onDelete,
+      deferrable: deferrable,
     )..setSpan(firstToken, _previous);
   }
 

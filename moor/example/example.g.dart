@@ -22,35 +22,47 @@ class Category extends DataClass implements Insertable<Category> {
           .mapFromDatabaseResponse(data['${effectivePrefix}description']),
     );
   }
-  factory Category.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return Category(
-      id: serializer.fromJson<int>(json['id']),
-      description: serializer.fromJson<String>(json['description']),
-    );
-  }
-  factory Category.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
-      Category.fromJson(
-          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-          serializer: serializer);
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'description': serializer.toJson<String>(description),
-    };
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || id != null) {
+      map['id'] = Variable<int>(id);
+    }
+    if (!nullToAbsent || description != null) {
+      map['description'] = Variable<String>(description);
+    }
+    return map;
   }
 
-  @override
-  CategoriesCompanion createCompanion(bool nullToAbsent) {
+  CategoriesCompanion toCompanion(bool nullToAbsent) {
     return CategoriesCompanion(
       id: id == null && nullToAbsent ? const Value.absent() : Value(id),
       description: description == null && nullToAbsent
           ? const Value.absent()
           : Value(description),
     );
+  }
+
+  factory Category.fromJson(Map<String, dynamic> json,
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return Category(
+      id: serializer.fromJson<int>(json['id']),
+      description: serializer.fromJson<String>(json['description']),
+    );
+  }
+  factory Category.fromJsonString(String encodedJson,
+          {ValueSerializer serializer}) =>
+      Category.fromJson(
+          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+          serializer: serializer);
+  @override
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'description': serializer.toJson<String>(description),
+    };
   }
 
   Category copyWith({int id, String description}) => Category(
@@ -87,11 +99,42 @@ class CategoriesCompanion extends UpdateCompanion<Category> {
     this.id = const Value.absent(),
     this.description = const Value.absent(),
   });
+  static Insertable<Category> custom({
+    Expression<int> id,
+    Expression<String> description,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (description != null) 'description': description,
+    });
+  }
+
   CategoriesCompanion copyWith({Value<int> id, Value<String> description}) {
     return CategoriesCompanion(
       id: id ?? this.id,
       description: description ?? this.description,
     );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (description.present) {
+      map['description'] = Variable<String>(description.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CategoriesCompanion(')
+          ..write('id: $id, ')
+          ..write('description: $description')
+          ..write(')'))
+        .toString();
   }
 }
 
@@ -132,19 +175,18 @@ class $CategoriesTable extends Categories
   @override
   final String actualTableName = 'categories';
   @override
-  VerificationContext validateIntegrity(CategoriesCompanion d,
+  VerificationContext validateIntegrity(Insertable<Category> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.id.present) {
-      context.handle(_idMeta, id.isAcceptableValue(d.id.value, _idMeta));
-    } else if (id.isRequired && isInserting) {
-      context.missing(_idMeta);
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id'], _idMeta));
     }
-    if (d.description.present) {
-      context.handle(_descriptionMeta,
-          description.isAcceptableValue(d.description.value, _descriptionMeta));
-    } else if (description.isRequired && isInserting) {
-      context.missing(_descriptionMeta);
+    if (data.containsKey('description')) {
+      context.handle(
+          _descriptionMeta,
+          description.isAcceptableOrUnknown(
+              data['description'], _descriptionMeta));
     }
     return context;
   }
@@ -155,18 +197,6 @@ class $CategoriesTable extends Categories
   Category map(Map<String, dynamic> data, {String tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : null;
     return Category.fromData(data, _db, prefix: effectivePrefix);
-  }
-
-  @override
-  Map<String, Variable> entityToSql(CategoriesCompanion d) {
-    final map = <String, Variable>{};
-    if (d.id.present) {
-      map['id'] = Variable<int, IntType>(d.id.value);
-    }
-    if (d.description.present) {
-      map['description'] = Variable<String, StringType>(d.description.value);
-    }
-    return map;
   }
 
   @override
@@ -200,32 +230,25 @@ class Recipe extends DataClass implements Insertable<Recipe> {
           intType.mapFromDatabaseResponse(data['${effectivePrefix}category']),
     );
   }
-  factory Recipe.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return Recipe(
-      id: serializer.fromJson<int>(json['id']),
-      title: serializer.fromJson<String>(json['title']),
-      instructions: serializer.fromJson<String>(json['instructions']),
-      category: serializer.fromJson<int>(json['category']),
-    );
-  }
-  factory Recipe.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
-      Recipe.fromJson(DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-          serializer: serializer);
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'title': serializer.toJson<String>(title),
-      'instructions': serializer.toJson<String>(instructions),
-      'category': serializer.toJson<int>(category),
-    };
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || id != null) {
+      map['id'] = Variable<int>(id);
+    }
+    if (!nullToAbsent || title != null) {
+      map['title'] = Variable<String>(title);
+    }
+    if (!nullToAbsent || instructions != null) {
+      map['instructions'] = Variable<String>(instructions);
+    }
+    if (!nullToAbsent || category != null) {
+      map['category'] = Variable<int>(category);
+    }
+    return map;
   }
 
-  @override
-  RecipesCompanion createCompanion(bool nullToAbsent) {
+  RecipesCompanion toCompanion(bool nullToAbsent) {
     return RecipesCompanion(
       id: id == null && nullToAbsent ? const Value.absent() : Value(id),
       title:
@@ -237,6 +260,31 @@ class Recipe extends DataClass implements Insertable<Recipe> {
           ? const Value.absent()
           : Value(category),
     );
+  }
+
+  factory Recipe.fromJson(Map<String, dynamic> json,
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return Recipe(
+      id: serializer.fromJson<int>(json['id']),
+      title: serializer.fromJson<String>(json['title']),
+      instructions: serializer.fromJson<String>(json['instructions']),
+      category: serializer.fromJson<int>(json['category']),
+    );
+  }
+  factory Recipe.fromJsonString(String encodedJson,
+          {ValueSerializer serializer}) =>
+      Recipe.fromJson(DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+          serializer: serializer);
+  @override
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'title': serializer.toJson<String>(title),
+      'instructions': serializer.toJson<String>(instructions),
+      'category': serializer.toJson<int>(category),
+    };
   }
 
   Recipe copyWith({int id, String title, String instructions, int category}) =>
@@ -288,6 +336,20 @@ class RecipesCompanion extends UpdateCompanion<Recipe> {
     this.category = const Value.absent(),
   })  : title = Value(title),
         instructions = Value(instructions);
+  static Insertable<Recipe> custom({
+    Expression<int> id,
+    Expression<String> title,
+    Expression<String> instructions,
+    Expression<int> category,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (title != null) 'title': title,
+      if (instructions != null) 'instructions': instructions,
+      if (category != null) 'category': category,
+    });
+  }
+
   RecipesCompanion copyWith(
       {Value<int> id,
       Value<String> title,
@@ -299,6 +361,35 @@ class RecipesCompanion extends UpdateCompanion<Recipe> {
       instructions: instructions ?? this.instructions,
       category: category ?? this.category,
     );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (instructions.present) {
+      map['instructions'] = Variable<String>(instructions.value);
+    }
+    if (category.present) {
+      map['category'] = Variable<int>(category.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecipesCompanion(')
+          ..write('id: $id, ')
+          ..write('title: $title, ')
+          ..write('instructions: $instructions, ')
+          ..write('category: $category')
+          ..write(')'))
+        .toString();
   }
 }
 
@@ -358,33 +449,30 @@ class $RecipesTable extends Recipes with TableInfo<$RecipesTable, Recipe> {
   @override
   final String actualTableName = 'recipes';
   @override
-  VerificationContext validateIntegrity(RecipesCompanion d,
+  VerificationContext validateIntegrity(Insertable<Recipe> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.id.present) {
-      context.handle(_idMeta, id.isAcceptableValue(d.id.value, _idMeta));
-    } else if (id.isRequired && isInserting) {
-      context.missing(_idMeta);
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id'], _idMeta));
     }
-    if (d.title.present) {
+    if (data.containsKey('title')) {
       context.handle(
-          _titleMeta, title.isAcceptableValue(d.title.value, _titleMeta));
-    } else if (title.isRequired && isInserting) {
+          _titleMeta, title.isAcceptableOrUnknown(data['title'], _titleMeta));
+    } else if (isInserting) {
       context.missing(_titleMeta);
     }
-    if (d.instructions.present) {
+    if (data.containsKey('instructions')) {
       context.handle(
           _instructionsMeta,
-          instructions.isAcceptableValue(
-              d.instructions.value, _instructionsMeta));
-    } else if (instructions.isRequired && isInserting) {
+          instructions.isAcceptableOrUnknown(
+              data['instructions'], _instructionsMeta));
+    } else if (isInserting) {
       context.missing(_instructionsMeta);
     }
-    if (d.category.present) {
+    if (data.containsKey('category')) {
       context.handle(_categoryMeta,
-          category.isAcceptableValue(d.category.value, _categoryMeta));
-    } else if (category.isRequired && isInserting) {
-      context.missing(_categoryMeta);
+          category.isAcceptableOrUnknown(data['category'], _categoryMeta));
     }
     return context;
   }
@@ -395,24 +483,6 @@ class $RecipesTable extends Recipes with TableInfo<$RecipesTable, Recipe> {
   Recipe map(Map<String, dynamic> data, {String tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : null;
     return Recipe.fromData(data, _db, prefix: effectivePrefix);
-  }
-
-  @override
-  Map<String, Variable> entityToSql(RecipesCompanion d) {
-    final map = <String, Variable>{};
-    if (d.id.present) {
-      map['id'] = Variable<int, IntType>(d.id.value);
-    }
-    if (d.title.present) {
-      map['title'] = Variable<String, StringType>(d.title.value);
-    }
-    if (d.instructions.present) {
-      map['instructions'] = Variable<String, StringType>(d.instructions.value);
-    }
-    if (d.category.present) {
-      map['category'] = Variable<int, IntType>(d.category.value);
-    }
-    return map;
   }
 
   @override
@@ -439,31 +509,22 @@ class Ingredient extends DataClass implements Insertable<Ingredient> {
           intType.mapFromDatabaseResponse(data['${effectivePrefix}calories']),
     );
   }
-  factory Ingredient.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return Ingredient(
-      id: serializer.fromJson<int>(json['id']),
-      name: serializer.fromJson<String>(json['name']),
-      caloriesPer100g: serializer.fromJson<int>(json['caloriesPer100g']),
-    );
-  }
-  factory Ingredient.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
-      Ingredient.fromJson(
-          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-          serializer: serializer);
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return <String, dynamic>{
-      'id': serializer.toJson<int>(id),
-      'name': serializer.toJson<String>(name),
-      'caloriesPer100g': serializer.toJson<int>(caloriesPer100g),
-    };
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || id != null) {
+      map['id'] = Variable<int>(id);
+    }
+    if (!nullToAbsent || name != null) {
+      map['name'] = Variable<String>(name);
+    }
+    if (!nullToAbsent || caloriesPer100g != null) {
+      map['calories'] = Variable<int>(caloriesPer100g);
+    }
+    return map;
   }
 
-  @override
-  IngredientsCompanion createCompanion(bool nullToAbsent) {
+  IngredientsCompanion toCompanion(bool nullToAbsent) {
     return IngredientsCompanion(
       id: id == null && nullToAbsent ? const Value.absent() : Value(id),
       name: name == null && nullToAbsent ? const Value.absent() : Value(name),
@@ -471,6 +532,30 @@ class Ingredient extends DataClass implements Insertable<Ingredient> {
           ? const Value.absent()
           : Value(caloriesPer100g),
     );
+  }
+
+  factory Ingredient.fromJson(Map<String, dynamic> json,
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return Ingredient(
+      id: serializer.fromJson<int>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      caloriesPer100g: serializer.fromJson<int>(json['caloriesPer100g']),
+    );
+  }
+  factory Ingredient.fromJsonString(String encodedJson,
+          {ValueSerializer serializer}) =>
+      Ingredient.fromJson(
+          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+          serializer: serializer);
+  @override
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'name': serializer.toJson<String>(name),
+      'caloriesPer100g': serializer.toJson<int>(caloriesPer100g),
+    };
   }
 
   Ingredient copyWith({int id, String name, int caloriesPer100g}) => Ingredient(
@@ -515,6 +600,18 @@ class IngredientsCompanion extends UpdateCompanion<Ingredient> {
     @required int caloriesPer100g,
   })  : name = Value(name),
         caloriesPer100g = Value(caloriesPer100g);
+  static Insertable<Ingredient> custom({
+    Expression<int> id,
+    Expression<String> name,
+    Expression<int> caloriesPer100g,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (caloriesPer100g != null) 'calories': caloriesPer100g,
+    });
+  }
+
   IngredientsCompanion copyWith(
       {Value<int> id, Value<String> name, Value<int> caloriesPer100g}) {
     return IngredientsCompanion(
@@ -522,6 +619,31 @@ class IngredientsCompanion extends UpdateCompanion<Ingredient> {
       name: name ?? this.name,
       caloriesPer100g: caloriesPer100g ?? this.caloriesPer100g,
     );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (caloriesPer100g.present) {
+      map['calories'] = Variable<int>(caloriesPer100g.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('IngredientsCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('caloriesPer100g: $caloriesPer100g')
+          ..write(')'))
+        .toString();
   }
 }
 
@@ -574,26 +696,25 @@ class $IngredientsTable extends Ingredients
   @override
   final String actualTableName = 'ingredients';
   @override
-  VerificationContext validateIntegrity(IngredientsCompanion d,
+  VerificationContext validateIntegrity(Insertable<Ingredient> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.id.present) {
-      context.handle(_idMeta, id.isAcceptableValue(d.id.value, _idMeta));
-    } else if (id.isRequired && isInserting) {
-      context.missing(_idMeta);
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id'], _idMeta));
     }
-    if (d.name.present) {
+    if (data.containsKey('name')) {
       context.handle(
-          _nameMeta, name.isAcceptableValue(d.name.value, _nameMeta));
-    } else if (name.isRequired && isInserting) {
+          _nameMeta, name.isAcceptableOrUnknown(data['name'], _nameMeta));
+    } else if (isInserting) {
       context.missing(_nameMeta);
     }
-    if (d.caloriesPer100g.present) {
+    if (data.containsKey('calories')) {
       context.handle(
           _caloriesPer100gMeta,
-          caloriesPer100g.isAcceptableValue(
-              d.caloriesPer100g.value, _caloriesPer100gMeta));
-    } else if (caloriesPer100g.isRequired && isInserting) {
+          caloriesPer100g.isAcceptableOrUnknown(
+              data['calories'], _caloriesPer100gMeta));
+    } else if (isInserting) {
       context.missing(_caloriesPer100gMeta);
     }
     return context;
@@ -605,21 +726,6 @@ class $IngredientsTable extends Ingredients
   Ingredient map(Map<String, dynamic> data, {String tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : null;
     return Ingredient.fromData(data, _db, prefix: effectivePrefix);
-  }
-
-  @override
-  Map<String, Variable> entityToSql(IngredientsCompanion d) {
-    final map = <String, Variable>{};
-    if (d.id.present) {
-      map['id'] = Variable<int, IntType>(d.id.value);
-    }
-    if (d.name.present) {
-      map['name'] = Variable<String, StringType>(d.name.value);
-    }
-    if (d.caloriesPer100g.present) {
-      map['calories'] = Variable<int, IntType>(d.caloriesPer100g.value);
-    }
-    return map;
   }
 
   @override
@@ -650,31 +756,22 @@ class IngredientInRecipe extends DataClass
           intType.mapFromDatabaseResponse(data['${effectivePrefix}amount']),
     );
   }
-  factory IngredientInRecipe.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return IngredientInRecipe(
-      recipe: serializer.fromJson<int>(json['recipe']),
-      ingredient: serializer.fromJson<int>(json['ingredient']),
-      amountInGrams: serializer.fromJson<int>(json['amountInGrams']),
-    );
-  }
-  factory IngredientInRecipe.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
-      IngredientInRecipe.fromJson(
-          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-          serializer: serializer);
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return <String, dynamic>{
-      'recipe': serializer.toJson<int>(recipe),
-      'ingredient': serializer.toJson<int>(ingredient),
-      'amountInGrams': serializer.toJson<int>(amountInGrams),
-    };
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || recipe != null) {
+      map['recipe'] = Variable<int>(recipe);
+    }
+    if (!nullToAbsent || ingredient != null) {
+      map['ingredient'] = Variable<int>(ingredient);
+    }
+    if (!nullToAbsent || amountInGrams != null) {
+      map['amount'] = Variable<int>(amountInGrams);
+    }
+    return map;
   }
 
-  @override
-  IngredientInRecipesCompanion createCompanion(bool nullToAbsent) {
+  IngredientInRecipesCompanion toCompanion(bool nullToAbsent) {
     return IngredientInRecipesCompanion(
       recipe:
           recipe == null && nullToAbsent ? const Value.absent() : Value(recipe),
@@ -685,6 +782,30 @@ class IngredientInRecipe extends DataClass
           ? const Value.absent()
           : Value(amountInGrams),
     );
+  }
+
+  factory IngredientInRecipe.fromJson(Map<String, dynamic> json,
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return IngredientInRecipe(
+      recipe: serializer.fromJson<int>(json['recipe']),
+      ingredient: serializer.fromJson<int>(json['ingredient']),
+      amountInGrams: serializer.fromJson<int>(json['amountInGrams']),
+    );
+  }
+  factory IngredientInRecipe.fromJsonString(String encodedJson,
+          {ValueSerializer serializer}) =>
+      IngredientInRecipe.fromJson(
+          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+          serializer: serializer);
+  @override
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'recipe': serializer.toJson<int>(recipe),
+      'ingredient': serializer.toJson<int>(ingredient),
+      'amountInGrams': serializer.toJson<int>(amountInGrams),
+    };
   }
 
   IngredientInRecipe copyWith(
@@ -732,6 +853,18 @@ class IngredientInRecipesCompanion extends UpdateCompanion<IngredientInRecipe> {
   })  : recipe = Value(recipe),
         ingredient = Value(ingredient),
         amountInGrams = Value(amountInGrams);
+  static Insertable<IngredientInRecipe> custom({
+    Expression<int> recipe,
+    Expression<int> ingredient,
+    Expression<int> amountInGrams,
+  }) {
+    return RawValuesInsertable({
+      if (recipe != null) 'recipe': recipe,
+      if (ingredient != null) 'ingredient': ingredient,
+      if (amountInGrams != null) 'amount': amountInGrams,
+    });
+  }
+
   IngredientInRecipesCompanion copyWith(
       {Value<int> recipe, Value<int> ingredient, Value<int> amountInGrams}) {
     return IngredientInRecipesCompanion(
@@ -739,6 +872,31 @@ class IngredientInRecipesCompanion extends UpdateCompanion<IngredientInRecipe> {
       ingredient: ingredient ?? this.ingredient,
       amountInGrams: amountInGrams ?? this.amountInGrams,
     );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (recipe.present) {
+      map['recipe'] = Variable<int>(recipe.value);
+    }
+    if (ingredient.present) {
+      map['ingredient'] = Variable<int>(ingredient.value);
+    }
+    if (amountInGrams.present) {
+      map['amount'] = Variable<int>(amountInGrams.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('IngredientInRecipesCompanion(')
+          ..write('recipe: $recipe, ')
+          ..write('ingredient: $ingredient, ')
+          ..write('amountInGrams: $amountInGrams')
+          ..write(')'))
+        .toString();
   }
 }
 
@@ -794,27 +952,30 @@ class $IngredientInRecipesTable extends IngredientInRecipes
   @override
   final String actualTableName = 'recipe_ingredients';
   @override
-  VerificationContext validateIntegrity(IngredientInRecipesCompanion d,
+  VerificationContext validateIntegrity(Insertable<IngredientInRecipe> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.recipe.present) {
-      context.handle(
-          _recipeMeta, recipe.isAcceptableValue(d.recipe.value, _recipeMeta));
-    } else if (recipe.isRequired && isInserting) {
+    final data = instance.toColumns(true);
+    if (data.containsKey('recipe')) {
+      context.handle(_recipeMeta,
+          recipe.isAcceptableOrUnknown(data['recipe'], _recipeMeta));
+    } else if (isInserting) {
       context.missing(_recipeMeta);
     }
-    if (d.ingredient.present) {
-      context.handle(_ingredientMeta,
-          ingredient.isAcceptableValue(d.ingredient.value, _ingredientMeta));
-    } else if (ingredient.isRequired && isInserting) {
+    if (data.containsKey('ingredient')) {
+      context.handle(
+          _ingredientMeta,
+          ingredient.isAcceptableOrUnknown(
+              data['ingredient'], _ingredientMeta));
+    } else if (isInserting) {
       context.missing(_ingredientMeta);
     }
-    if (d.amountInGrams.present) {
+    if (data.containsKey('amount')) {
       context.handle(
           _amountInGramsMeta,
-          amountInGrams.isAcceptableValue(
-              d.amountInGrams.value, _amountInGramsMeta));
-    } else if (amountInGrams.isRequired && isInserting) {
+          amountInGrams.isAcceptableOrUnknown(
+              data['amount'], _amountInGramsMeta));
+    } else if (isInserting) {
       context.missing(_amountInGramsMeta);
     }
     return context;
@@ -826,21 +987,6 @@ class $IngredientInRecipesTable extends IngredientInRecipes
   IngredientInRecipe map(Map<String, dynamic> data, {String tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : null;
     return IngredientInRecipe.fromData(data, _db, prefix: effectivePrefix);
-  }
-
-  @override
-  Map<String, Variable> entityToSql(IngredientInRecipesCompanion d) {
-    final map = <String, Variable>{};
-    if (d.recipe.present) {
-      map['recipe'] = Variable<int, IntType>(d.recipe.value);
-    }
-    if (d.ingredient.present) {
-      map['ingredient'] = Variable<int, IntType>(d.ingredient.value);
-    }
-    if (d.amountInGrams.present) {
-      map['amount'] = Variable<int, IntType>(d.amountInGrams.value);
-    }
-    return map;
   }
 
   @override
@@ -861,40 +1007,34 @@ abstract class _$Database extends GeneratedDatabase {
   $IngredientInRecipesTable _ingredientInRecipes;
   $IngredientInRecipesTable get ingredientInRecipes =>
       _ingredientInRecipes ??= $IngredientInRecipesTable(this);
-  TotalWeightResult _rowToTotalWeightResult(QueryRow row) {
-    return TotalWeightResult(
-      title: row.readString('title'),
-      totalWeight: row.readInt('total_weight'),
-    );
-  }
-
-  Selectable<TotalWeightResult> _totalWeightQuery() {
-    return customSelectQuery(
+  Selectable<TotalWeightResult> totalWeight() {
+    return customSelect(
         'SELECT r.title, SUM(ir.amount) AS total_weight\n        FROM recipes r\n        INNER JOIN recipe_ingredients ir ON ir.recipe = r.id\n      GROUP BY r.id',
         variables: [],
-        readsFrom: {recipes, ingredientInRecipes}).map(_rowToTotalWeightResult);
-  }
-
-  Future<List<TotalWeightResult>> _totalWeight() {
-    return _totalWeightQuery().get();
-  }
-
-  Stream<List<TotalWeightResult>> _watchTotalWeight() {
-    return _totalWeightQuery().watch();
+        readsFrom: {recipes, ingredientInRecipes}).map((QueryRow row) {
+      return TotalWeightResult(
+        row: row,
+        title: row.readString('title'),
+        totalWeight: row.readInt('total_weight'),
+      );
+    });
   }
 
   @override
-  List<TableInfo> get allTables =>
+  Iterable<TableInfo> get allTables => allSchemaEntities.whereType<TableInfo>();
+  @override
+  List<DatabaseSchemaEntity> get allSchemaEntities =>
       [categories, recipes, ingredients, ingredientInRecipes];
 }
 
-class TotalWeightResult {
+class TotalWeightResult extends CustomResultSet {
   final String title;
   final int totalWeight;
   TotalWeightResult({
+    @required QueryRow row,
     this.title,
     this.totalWeight,
-  });
+  }) : super(row);
   @override
   int get hashCode => $mrjf($mrjc(title.hashCode, totalWeight.hashCode));
   @override
@@ -903,4 +1043,12 @@ class TotalWeightResult {
       (other is TotalWeightResult &&
           other.title == this.title &&
           other.totalWeight == this.totalWeight);
+  @override
+  String toString() {
+    return (StringBuffer('TotalWeightResult(')
+          ..write('title: $title, ')
+          ..write('totalWeight: $totalWeight')
+          ..write(')'))
+        .toString();
+  }
 }

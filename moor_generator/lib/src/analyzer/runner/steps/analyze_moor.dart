@@ -4,6 +4,11 @@ class AnalyzeMoorStep extends AnalyzingStep {
   AnalyzeMoorStep(Task task, FoundFile file) : super(task, file);
 
   void analyze() {
+    if (file.currentResult == null) {
+      // Error during parsing, ignore.
+      return;
+    }
+
     final parseResult = file.currentResult as ParsedMoorFile;
 
     final transitiveImports =
@@ -13,10 +18,10 @@ class AnalyzeMoorStep extends AnalyzingStep {
         .followedBy(parseResult.declaredTables)
         .toList();
 
-    final parser = SqlParser(this, availableTables, parseResult.queries)
+    final parser = SqlAnalyzer(this, availableTables, parseResult.queries)
       ..parse();
 
-    TableHandler(this, parseResult, availableTables).handle();
+    EntityHandler(this, parseResult, availableTables).handle();
 
     parseResult.resolvedQueries = parser.foundQueries;
   }

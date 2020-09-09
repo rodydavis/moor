@@ -17,13 +17,6 @@ mixin _MySqlExecutor on QueryDelegate {
   Querier get _querier;
 
   @override
-  Future<void> runBatched(List<BatchedStatement> statements) async {
-    for (final stmt in statements) {
-      await _querier.preparedMulti(stmt.sql, stmt.variables);
-    }
-  }
-
-  @override
   Future<void> runCustom(String statement, List args) async {
     await _querier.prepared(statement, args);
   }
@@ -75,7 +68,7 @@ class _MySqlDelegate extends DatabaseDelegate with _MySqlExecutor {
   SqlDialect get dialect => SqlDialect.mysql;
 
   @override
-  Future<void> open([GeneratedDatabase db]) async {
+  Future<void> open(_) async {
     _connection = await MySqlConnection.connect(_settings);
   }
 

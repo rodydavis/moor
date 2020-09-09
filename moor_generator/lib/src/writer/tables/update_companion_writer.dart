@@ -1,4 +1,6 @@
 import 'package:moor_generator/moor_generator.dart';
+import 'package:moor_generator/src/utils/string_escaper.dart';
+import 'package:moor_generator/src/writer/utils/override_toString.dart';
 import 'package:moor_generator/writer.dart';
 
 class UpdateCompanionWriter {
@@ -15,22 +17,31 @@ class UpdateCompanionWriter {
     _buffer.write('class ${table.getNameForCompanionClass(scope.options)} '
         'extends UpdateCompanion<${table.dartTypeName}> {\n');
     _writeFields();
+
     _writeConstructor();
     _writeInsertConstructor();
+    _writeCustomConstructor();
+
     _writeCopyWith();
+    _writeToColumnsOverride();
+    _writeToString();
 
     _buffer.write('}\n');
   }
 
   void _writeFields() {
     for (final column in table.columns) {
-      _buffer.write('final Value<${column.dartTypeName}>'
+      final modifier = scope.options.fieldModifier;
+      _buffer.write('$modifier Value<${column.dartTypeName}>'
           ' ${column.dartGetterName};\n');
     }
   }
 
   void _writeConstructor() {
-    _buffer.write('const ${table.getNameForCompanionClass(scope.options)}({');
+    if (!scope.options.generateMutableClasses) {
+      _buffer.write('const ');
+    }
+    _buffer.write('${table.getNameForCompanionClass(scope.options)}({');
 
     for (final column in table.columns) {
       _buffer.write('this.${column.dartGetterName} = const Value.absent(),');
@@ -59,7 +70,7 @@ class UpdateCompanionWriter {
     for (final column in table.columns) {
       final param = column.dartGetterName;
 
-      if (column.requiredDuringInsert) {
+      if (table.isColumnRequiredForInsert(column)) {
         requiredColumns.add(column);
 
         _buffer.write('@required ${column.dartTypeName} $param,');
@@ -85,6 +96,38 @@ class UpdateCompanionWriter {
     _buffer.write(';\n');
   }
 
+  void _writeCustomConstructor() {
+    // Prefer a .custom constructor, unless there already is a field called
+    // "custom", in which case we'll use createCustom
+    final constructorName = table.columns
+            .map((e) => e.dartGetterName)
+            .any((name) => name == 'custom')
+        ? 'createCustom'
+        : 'custom';
+
+    _buffer
+      ..write('static Insertable<${table.dartTypeName}> $constructorName')
+      ..write('({');
+
+    for (final column in table.columns) {
+      _buffer
+        ..write('Expression<${column.variableTypeName}> ')
+        ..write(column.dartGetterName)
+        ..write(',\n');
+    }
+
+    _buffer..write('}) {\n')..write('return RawValuesInsertable({');
+
+    for (final column in table.columns) {
+      _buffer
+        ..write('if (${column.dartGetterName} != null)')
+        ..write(asDartLiteral(column.name.name))
+        ..write(': ${column.dartGetterName},');
+    }
+
+    _buffer.write('});\n}');
+  }
+
   void _writeCopyWith() {
     _buffer
       ..write(table.getNameForCompanionClass(scope.options))
@@ -106,5 +149,52 @@ class UpdateCompanionWriter {
       _buffer.write('$name: $name ?? this.$name,');
     }
     _buffer.write(');\n}\n');
+  }
+
+  void _writeToColumnsOverride() {
+    // Map<String, Variable> entityToSql(covariant UpdateCompanion<D> instance)
+    _buffer
+      ..write('@override\nMap<String, Expression> toColumns'
+          '(bool nullToAbsent) {\n')
+      ..write('final map = <String, Expression> {};');
+
+    const locals = {'map', 'nullToAbsent'};
+
+    for (final column in table.columns) {
+      final getterName = column.thisIfNeeded(locals);
+
+      _buffer.write('if ($getterName.present) {');
+      final mapSetter = 'map[${asDartLiteral(column.name.name)}] = '
+          'Variable<${column.variableTypeName}>';
+
+      if (column.typeConverter != null) {
+        // apply type converter before writing the variable
+        final converter = column.typeConverter;
+        final fieldName = '${table.tableInfoName}.${converter.fieldName}';
+        _buffer
+          ..write('final converter = $fieldName;\n')
+          ..write(mapSetter)
+          ..write('(converter.mapToSql($getterName.value));');
+      } else {
+        // no type converter. Write variable directly
+        _buffer
+          ..write(mapSetter)
+          ..write('(')
+          ..write('$getterName.value')
+          ..write(');');
+      }
+
+      _buffer.write('}');
+    }
+
+    _buffer.write('return map; \n}\n');
+  }
+
+  void _writeToString() {
+    overrideToString(
+      table.getNameForCompanionClass(scope.options),
+      [for (final column in table.columns) column.dartGetterName],
+      _buffer,
+    );
   }
 }

@@ -9,7 +9,12 @@ class ImportStatement extends Statement implements PartOfMoorFile {
   ImportStatement(this.importedFile);
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitMoorImportStatement(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitMoorImportStatement(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {}
 
   @override
   final Iterable<AstNode> childNodes = const [];

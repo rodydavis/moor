@@ -1,6 +1,23 @@
+## 3.1.0
+
+Don't write the schema version to the database if the migration throws an exception.
+
+## 3.0.0
+
+Support `moor` version 3.0. To learn what's new, head over to [its changelog](https://pub.dev/packages/moor).
+
+## 2.1.1
+
+- Fix `runCustom` not using the provided variables ([#406](https://github.com/simolus3/moor/issues/406))
+
+## 2.1.0
+
+- Expose the underlying database from sqflite in `FlutterQueryExecutor`.
+  This exists only to make migrations to moor easier.
+
 ## 2.0.0
 See the changelog of [moor](https://pub.dev/packages/moor#-changelog-tab-) for details,
-or check out an overview of new features [here](https://moor.simonbinder.eu/v2])
+or check out an overview of new features [here](https://moor.simonbinder.eu/v2)
 
 ## 1.7.0
 - Support custom columns via type converters. See the [docs](https://moor.simonbinder.eu/type_converters)

@@ -2,12 +2,19 @@ part of '../ast.dart';
 
 class UnaryExpression extends Expression {
   final Token operator;
-  final Expression inner;
+  Expression inner;
 
   UnaryExpression(this.operator, this.inner);
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitUnaryExpression(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitUnaryExpression(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    inner = transformer.transformChild(inner, this, arg);
+  }
 
   @override
   Iterable<AstNode> get childNodes => [inner];
@@ -28,6 +35,11 @@ class CollateExpression extends UnaryExpression {
       : super(operator, inner);
 
   @override
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitCollateExpression(this, arg);
+  }
+
+  @override
   bool contentEquals(CollateExpression other) {
     return super.contentEquals(other) &&
         other.collateFunction.type == collateFunction.type;
@@ -36,13 +48,21 @@ class CollateExpression extends UnaryExpression {
 
 class BinaryExpression extends Expression {
   final Token operator;
-  final Expression left;
-  final Expression right;
+  Expression left;
+  Expression right;
 
   BinaryExpression(this.left, this.operator, this.right);
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitBinaryExpression(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitBinaryExpression(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    left = transformer.transformChild(left, this, arg);
+    right = transformer.transformChild(right, this, arg);
+  }
 
   @override
   Iterable<AstNode> get childNodes => [left, right];
@@ -53,12 +73,13 @@ class BinaryExpression extends Expression {
   }
 }
 
+/// A like, glob, match or regexp expression.
 class StringComparisonExpression extends Expression {
   final bool not;
   final Token operator;
-  final Expression left;
-  final Expression right;
-  final Expression escape;
+  Expression left;
+  Expression right;
+  Expression escape;
 
   StringComparisonExpression(
       {this.not = false,
@@ -68,7 +89,16 @@ class StringComparisonExpression extends Expression {
       this.escape});
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitStringComparison(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitStringComparison(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    left = transformer.transformChild(left, this, arg);
+    right = transformer.transformChild(right, this, arg);
+    escape = transformer.transformNullableChild(escape, this, arg);
+  }
 
   @override
   Iterable<AstNode> get childNodes => [left, right, if (escape != null) escape];
@@ -80,14 +110,20 @@ class StringComparisonExpression extends Expression {
 /// `(NOT)? $left IS $right`
 class IsExpression extends Expression {
   final bool negated;
-  final Expression left;
-  final Expression right;
+  Expression left;
+  Expression right;
 
   IsExpression(this.negated, this.left, this.right);
 
   @override
-  T accept<T>(AstVisitor<T> visitor) {
-    return visitor.visitIsExpression(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitIsExpression(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    left = transformer.transformChild(left, this, arg);
+    right = transformer.transformChild(right, this, arg);
   }
 
   @override
@@ -99,20 +135,56 @@ class IsExpression extends Expression {
   }
 }
 
+class IsNullExpression extends Expression {
+  Expression operand;
+
+  /// When true, this is a `NOT NULL` expression.
+  final bool negated;
+
+  IsNullExpression(this.operand, [this.negated = false]);
+
+  @override
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitIsNullExpression(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    operand = transformer.transformChild(operand, this, arg);
+  }
+
+  @override
+  Iterable<AstNode> get childNodes => [operand];
+
+  @override
+  bool contentEquals(IsNullExpression other) {
+    return other.negated == negated;
+  }
+}
+
 /// `$check BETWEEN $lower AND $upper`
 class BetweenExpression extends Expression {
   final bool not;
-  final Expression check;
-  final Expression lower;
-  final Expression upper;
+  Expression check;
+  Expression lower;
+  Expression upper;
 
   BetweenExpression({this.not = false, this.check, this.lower, this.upper});
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitBetweenExpression(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitBetweenExpression(this, arg);
+  }
 
   @override
-  Iterable<AstNode> get childNodes => [check, lower, upper];
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    check = transformer.transformChild(check, this, arg);
+    lower = transformer.transformChild(lower, this, arg);
+    upper = transformer.transformChild(upper, this, arg);
+  }
+
+  @override
+  List<Expression> get childNodes => [check, lower, upper];
 
   @override
   bool contentEquals(BetweenExpression other) => other.not == not;
@@ -121,33 +193,38 @@ class BetweenExpression extends Expression {
 /// `$left$ IN $inside`.
 class InExpression extends Expression {
   final bool not;
-  final Expression left;
+  Expression left;
 
   /// The right-hand part: Contains the set of values [left] will be tested
   /// against. From the sqlite grammar, we support [Tuple] and a [SubQuery].
   /// We also support a [Variable] as syntax sugar - it will be expanded into a
   /// tuple of variables at runtime.
-  final Expression inside;
+  Expression inside;
 
   InExpression({this.not = false, @required this.left, @required this.inside})
       : assert(inside is Tuple || inside is Variable || inside is SubQuery);
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitInExpression(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitInExpression(this, arg);
+  }
 
   @override
-  Iterable<AstNode> get childNodes => [left, inside];
+  List<Expression> get childNodes => [left, inside];
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    left = transformer.transformChild(left, this, arg);
+    inside = transformer.transformChild(inside, this, arg);
+  }
 
   @override
   bool contentEquals(InExpression other) => other.not == not;
 }
 
-// todo we might be able to remove a hack in the parser at _in() if we make
-// parentheses a subclass of tuples
-
 class Parentheses extends Expression {
   final Token openingLeft;
-  final Expression expression;
+  Expression expression;
   final Token closingRight;
 
   Parentheses(this.openingLeft, this.expression, this.closingRight) {
@@ -155,8 +232,13 @@ class Parentheses extends Expression {
   }
 
   @override
-  T accept<T>(AstVisitor<T> visitor) {
-    return expression.accept(visitor);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitParentheses(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    expression = transformer.transformChild(expression, this, arg);
   }
 
   @override

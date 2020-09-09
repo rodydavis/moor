@@ -15,7 +15,14 @@ class OrderBy extends AstNode implements OrderByBase {
   OrderBy({this.terms});
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitOrderBy(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitOrderBy(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    transformer.transformChildren(terms, this, arg);
+  }
 
   @override
   Iterable<AstNode> get childNodes => terms;
@@ -28,23 +35,33 @@ class OrderBy extends AstNode implements OrderByBase {
 
 enum OrderingMode { ascending, descending }
 
+enum OrderingBehaviorForNulls { first, last }
+
 class OrderingTerm extends AstNode implements OrderingTermBase {
-  final Expression expression;
-  final OrderingMode orderingMode;
+  Expression expression;
+  OrderingMode orderingMode;
+  OrderingBehaviorForNulls nulls;
 
   OrderingMode get resolvedOrderingMode =>
       orderingMode ?? OrderingMode.ascending;
 
-  OrderingTerm({this.expression, this.orderingMode});
+  OrderingTerm({this.expression, this.orderingMode, this.nulls});
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitOrderingTerm(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitOrderingTerm(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    expression = transformer.transformChild(expression, this, arg);
+  }
 
   @override
   Iterable<AstNode> get childNodes => [expression];
 
   @override
   bool contentEquals(OrderingTerm other) {
-    return other.orderingMode == orderingMode;
+    return other.orderingMode == orderingMode && other.nulls == nulls;
   }
 }

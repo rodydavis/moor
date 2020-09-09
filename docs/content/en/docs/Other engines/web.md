@@ -20,7 +20,7 @@ class MyDatabase extends _$MyDatabase {
   MyDatabase() : super(WebDatabase('app'));
 ```
 
-Moor web is built on top of the [sql.js](https://github.com/kripken/sql.js/) library, which you need to include:
+Moor web is built on top of the [sql.js](https://github.com/sql-js/sql.js/) library, which you need to include:
 ```html
 <!doctype html>
 <html lang="en">
@@ -32,8 +32,11 @@ Moor web is built on top of the [sql.js](https://github.com/kripken/sql.js/) lib
 <body></body>
 </html>
 ```
-You can grab the latest version of `sql-wasm.js` and `sql-wasm.wasm` [here](https://github.com/kripken/sql.js/tree/master/dist)
+You can grab the latest version of `sql-wasm.js` and `sql-wasm.wasm` [here](https://github.com/sql-js/sql.js/releases)
 and copy them into your `web` folder.
+
+A full example that works on the web (and all other platforms) is available
+[here](https://github.com/rodydavis/moor_shared).
 
 ## Gotchas
 The database implementation uses WebAssembly, which needs to be supported by your browser. 
@@ -71,9 +74,23 @@ SharedDatabase constructDb() {
 You can see all queries sent from moor to the underlying database engine by enabling the `logStatements`
 parameter on the `WebDatabase` - they will appear in the console.
 When you have assertions enabled (e.g. in debug mode), moor will expose the underlying 
-[database](http://kripken.github.io/sql.js/documentation/#http://kripken.github.io/sql.js/documentation/class/Database.html)
+[database](http://sql-js.github.io/sql.js/documentation/#http://sql-js.github.io/sql.js/documentation/class/Database.html)
 object via `window.db`. If you need to quickly run a query to check the state of the database, you can use
 `db.exec(sql)`.
 If you need to delete your databases, there stored using local storage. You can clear all your data with `localStorage.clear()`.
 
 Web support is experimental at the moment, so please [report all issues](https://github.com/simolus3/moor/issues/new) you find.
+
+## Using IndexedDb
+
+The default `WebDatabase` uses local storage to store the raw sqlite database file. On browsers that support it, you can also
+use `IndexedDb` to store that blob. In general, browsers allow a larger size for `IndexedDb`. The implementation is also more
+performant, since we don't have to encode binary blobs as strings.
+
+To use this implementation on browsers that support it, replace `WebDatabase(name)` with:
+
+```dart
+WebDatabase.withStorage(MoorWebStorage.indexedDbIfSupported(name))
+```
+
+Moor will automatically migrate data from local storage to `IndexeDb` when it is available.

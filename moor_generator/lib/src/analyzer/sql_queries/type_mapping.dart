@@ -1,12 +1,17 @@
+import 'package:moor/moor.dart' as m;
 import 'package:moor_generator/moor_generator.dart';
 import 'package:moor_generator/src/model/sql_query.dart';
 import 'package:moor_generator/src/utils/type_converter_hint.dart';
 import 'package:sqlparser/sqlparser.dart';
+import 'package:sqlparser/utils/find_referenced_tables.dart' as s;
 
 /// Converts tables and types between the moor_generator and the sqlparser
 /// library.
 class TypeMapper {
   final Map<Table, MoorTable> _engineTablesToSpecified = {};
+  final bool applyTypeConvertersToVariables;
+
+  TypeMapper({this.applyTypeConvertersToVariables = false});
 
   /// Convert a [MoorTable] from moor into something that can be understood
   /// by the sqlparser library.
@@ -134,8 +139,23 @@ class TypeMapper {
               'array appearing after an array!');
         }
 
-        foundElements
-            .add(FoundVariable(currentIndex, name, type, used, isArray));
+        UsedTypeConverter converter;
+
+        // Recognizing type converters on variables is opt-in since it would
+        // break existing code.
+        if (applyTypeConvertersToVariables &&
+            internalType.type?.hint is TypeConverterHint) {
+          converter = (internalType.type.hint as TypeConverterHint).converter;
+        }
+
+        foundElements.add(FoundVariable(
+          index: currentIndex,
+          name: name,
+          type: type,
+          variable: used,
+          isArray: isArray,
+          converter: converter,
+        ));
 
         // arrays cannot be indexed explicitly because they're expanded into
         // multiple variables when executed
@@ -221,5 +241,15 @@ class TypeMapper {
 
   MoorTable tableToMoor(Table table) {
     return _engineTablesToSpecified[table];
+  }
+
+  WrittenMoorTable writtenToMoor(s.TableWrite table) {
+    final moorKind = const {
+      s.UpdateKind.insert: m.UpdateKind.insert,
+      s.UpdateKind.update: m.UpdateKind.update,
+      s.UpdateKind.delete: m.UpdateKind.delete,
+    }[table.kind];
+
+    return WrittenMoorTable(tableToMoor(table.table), moorKind);
   }
 }

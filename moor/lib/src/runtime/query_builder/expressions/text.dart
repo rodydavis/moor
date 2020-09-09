@@ -1,23 +1,79 @@
 part of '../query_builder.dart';
 
 /// Defines methods that operate on a column storing [String] values.
-extension StringExpressionOperators on Expression<String, StringType> {
+extension StringExpressionOperators on Expression<String> {
   /// Whether this column matches the given pattern. For details on what patters
   /// are valid and how they are interpreted, check out
   /// [this tutorial](http://www.sqlitetutorial.net/sqlite-like/).
-  Expression<bool, BoolType> like(String regex) {
+  Expression<bool> like(String regex) {
     return _LikeOperator(this, Variable.withString(regex));
+  }
+
+  /// Matches this string against the regular expression in [regex].
+  ///
+  /// The [multiLine], [caseSensitive], [unicode] and [dotAll] parameters
+  /// correspond to the parameters on [RegExp].
+  ///
+  /// Note that this function is only available when using `moor_ffi`. If you
+  /// need to support the web or `moor_flutter`, consider using [like] instead.
+  Expression<bool> regexp(
+    String regex, {
+    bool multiLine = false,
+    bool caseSensitive = true,
+    bool unicode = false,
+    bool dotAll = false,
+  }) {
+    // moor_ffi has a special regexp sql function that takes a third parameter
+    // to encode flags. If the least significant bit is set, multiLine is
+    // enabled. The next three bits enable case INSENSITIVITY (it's sensitive
+    // by default), unicode and dotAll.
+    var flags = 0;
+
+    if (multiLine) {
+      flags |= 1;
+    }
+    if (!caseSensitive) {
+      flags |= 2;
+    }
+    if (unicode) {
+      flags |= 4;
+    }
+    if (dotAll) {
+      flags |= 8;
+    }
+
+    if (flags != 0) {
+      return FunctionCallExpression<bool>(
+        'regexp_moor_ffi',
+        [
+          Variable.withString(regex),
+          this,
+          Variable.withInt(flags),
+        ],
+      );
+    }
+
+    // No special flags enabled, use the regular REGEXP operator
+    return _LikeOperator(this, Variable.withString(regex), operator: 'REGEXP');
+  }
+
+  /// Whether this expression contains [substring].
+  ///
+  /// Note that this is case-insensitive for the English alphabet only.
+  ///
+  /// This is equivalent to calling [like] with `%<substring>%`.
+  Expression<bool> contains(String substring) {
+    return like('%$substring%');
   }
 
   /// Uses the given [collate] sequence when comparing this column to other
   /// values.
-  Expression<String, StringType> collate(Collate collate) {
+  Expression<String> collate(Collate collate) {
     return _CollateOperator(this, collate);
   }
 
   /// Performs a string concatenation in sql by appending [other] to `this`.
-  Expression<String, StringType> operator +(
-      Expression<String, StringType> other) {
+  Expression<String> operator +(Expression<String> other) {
     return _BaseInfixOperator(this, '||', other,
         precedence: Precedence.stringConcatenation);
   }
@@ -27,7 +83,7 @@ extension StringExpressionOperators on Expression<String, StringType> {
   ///
   /// See also:
   ///  - https://www.w3resource.com/sqlite/core-functions-upper.php
-  Expression<String, StringType> upper() {
+  Expression<String> upper() {
     return FunctionCallExpression('UPPER', [this]);
   }
 
@@ -36,7 +92,7 @@ extension StringExpressionOperators on Expression<String, StringType> {
   ///
   /// See also:
   ///  - https://www.w3resource.com/sqlite/core-functions-lower.php
-  Expression<String, StringType> lower() {
+  Expression<String> lower() {
     return FunctionCallExpression('LOWER', [this]);
   }
 
@@ -46,41 +102,48 @@ extension StringExpressionOperators on Expression<String, StringType> {
   ///
   /// See also:
   ///  - https://www.w3resource.com/sqlite/core-functions-length.php
-  Expression<int, IntType> get length {
+  Expression<int> get length {
     return FunctionCallExpression('LENGTH', [this]);
   }
 }
 
 /// A `text LIKE pattern` expression that will be true if the first expression
 /// matches the pattern given by the second expression.
-class _LikeOperator extends Expression<bool, BoolType> {
+class _LikeOperator extends Expression<bool> {
   /// The target expression that will be tested
-  final Expression<String, StringType> target;
+  final Expression<String> target;
 
   /// The regex-like expression to test the [target] against.
-  final Expression<String, StringType> regex;
+  final Expression<String> regex;
+
+  /// The operator to use when matching. Defaults to `LIKE`.
+  final String operator;
 
   @override
   final Precedence precedence = Precedence.comparisonEq;
 
   /// Perform a like operator with the target and the regex.
-  _LikeOperator(this.target, this.regex);
+  _LikeOperator(this.target, this.regex, {this.operator = 'LIKE'});
 
   @override
   void writeInto(GenerationContext context) {
     writeInner(context, target);
-    context.buffer.write(' LIKE ');
+    context.writeWhitespace();
+    context.buffer.write(operator);
+    context.writeWhitespace();
     writeInner(context, regex);
   }
 
   @override
-  int get hashCode => $mrjf($mrjc(target.hashCode, regex.hashCode));
+  int get hashCode =>
+      $mrjf($mrjc(target.hashCode, $mrjc(regex.hashCode, operator.hashCode)));
 
   @override
   bool operator ==(dynamic other) {
     return other is _LikeOperator &&
         other.target == target &&
-        other.regex == regex;
+        other.regex == regex &&
+        other.operator == operator;
   }
 }
 
@@ -106,7 +169,7 @@ enum Collate {
 }
 
 /// A `text COLLATE collate` expression in sqlite.
-class _CollateOperator extends Expression<String, StringType> {
+class _CollateOperator extends Expression<String> {
   /// The expression on which the collate function will be run
   final Expression inner;
 

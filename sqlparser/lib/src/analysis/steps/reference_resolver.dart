@@ -1,15 +1,15 @@
 part of '../analysis.dart';
 
 /// Resolves any open [Reference] it finds in the AST.
-class ReferenceResolver extends RecursiveVisitor<void> {
+class ReferenceResolver extends RecursiveVisitor<void, void> {
   final AnalysisContext context;
 
   ReferenceResolver(this.context);
 
   @override
-  void visitReference(Reference e) {
+  void visitReference(Reference e, void arg) {
     if (e.resolved != null) {
-      return super.visitReference(e);
+      return super.visitReference(e, arg);
     }
 
     final scope = e.scope;
@@ -66,7 +66,7 @@ class ReferenceResolver extends RecursiveVisitor<void> {
       }
     }
 
-    visitChildren(e);
+    visitChildren(e, arg);
   }
 
   void _reportUnknownColumnError(Reference e, {Iterable<Column> columns}) {
@@ -89,11 +89,11 @@ class ReferenceResolver extends RecursiveVisitor<void> {
         orElse: () => null) as SelectStatement;
 
     if (select == null) return null;
-    if (select.from.length != 1 || select.from.single is! TableReference) {
+    if (select.from is! TableReference) {
       return null;
     }
 
-    final table = (select.from.single as TableReference).resolved as Table;
+    final table = (select.from as TableReference).resolved as Table;
     if (table == null) return null;
 
     // table.findColumn contains logic to resolve row id aliases
@@ -101,12 +101,12 @@ class ReferenceResolver extends RecursiveVisitor<void> {
   }
 
   @override
-  void visitAggregateExpression(AggregateExpression e) {
+  void visitAggregateExpression(AggregateExpression e, void arg) {
     if (e.windowName != null && e.resolved == null) {
       final resolved = e.scope.resolve<NamedWindowDeclaration>(e.windowName);
       e.resolved = resolved;
     }
 
-    visitChildren(e);
+    visitChildren(e, arg);
   }
 }

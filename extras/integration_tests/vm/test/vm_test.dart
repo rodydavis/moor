@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:moor_ffi/moor_ffi.dart';
+import 'package:moor/ffi.dart';
 import 'package:tests/tests.dart';
 
 import 'package:path/path.dart' show join;
@@ -10,8 +10,8 @@ class VmExecutor extends TestExecutor {
   final File file = File(join(Directory.systemTemp.path, fileName));
 
   @override
-  QueryExecutor createExecutor() {
-    return VmDatabase(file);
+  DatabaseConnection createConnection() {
+    return DatabaseConnection.fromExecutor(VmDatabase(file));
   }
 
   @override

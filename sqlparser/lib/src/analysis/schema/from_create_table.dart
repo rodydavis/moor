@@ -6,7 +6,7 @@ class SchemaFromCreateTable {
   /// and `DATETIME` columns.
   final bool moorExtensions;
 
-  SchemaFromCreateTable({this.moorExtensions = false});
+  const SchemaFromCreateTable({this.moorExtensions = false});
 
   Table read(TableInducingStatement stmt) {
     if (stmt is CreateTableStatement) {
@@ -17,6 +17,40 @@ class SchemaFromCreateTable {
     }
 
     throw AssertionError('Unknown table statement');
+  }
+
+  /// Creates a [View] from a [CreateViewStatement]. The `CREATE VIEW` statement
+  /// must be fully resolved through [context] when calling this method.
+  ///
+  /// Example:
+  /// ```dart
+  /// // this will run analysis on the inner select statement and resolve columns
+  /// final ctx = engine.analyze('CREATE VIEW ...');
+  /// final createViewStmt = ctx.root as CreateViewStatement;
+  ///
+  /// final view = const SchemaFromCreateTable().readView(ctx, createViewStmt);
+  /// ```
+  View readView(AnalysisContext context, CreateViewStatement stmt) {
+    final columnsFromSelect = stmt.query.resolvedColumns;
+    final overriddenNames = stmt.columns ?? const [];
+
+    final viewColumns = List<ViewColumn>(columnsFromSelect.length);
+
+    for (var i = 0; i < columnsFromSelect.length; i++) {
+      final column = columnsFromSelect[i];
+
+      // overriddenNames might be shorter than the columns. That's not a valid
+      // CREATE VIEW statement, but we try not to crash.
+      final name = i < overriddenNames.length ? overriddenNames[i] : null;
+
+      viewColumns[i] = ViewColumn(column, context.typeOf(column).type, name);
+    }
+
+    return View(
+      name: stmt.viewName,
+      resolvedColumns: viewColumns,
+      definition: stmt,
+    );
   }
 
   Table _readCreateTable(CreateTableStatement stmt) {
@@ -30,9 +64,7 @@ class SchemaFromCreateTable {
   }
 
   TableColumn _readColumn(ColumnDefinition definition) {
-    final typeName = definition.typeName.toUpperCase();
-
-    final type = resolveColumnType(typeName);
+    final type = resolveColumnType(definition.typeName);
     final nullable = !definition.constraints.any((c) => c is NotNull);
 
     final resolvedType = type.withNullable(nullable);
@@ -49,7 +81,7 @@ class SchemaFromCreateTable {
   /// [IsDateTime] hints if the type name contains `BOOL` or `DATE`,
   /// respectively.
   /// https://www.sqlite.org/datatype3.html#determination_of_column_affinity
-  ResolvedType resolveColumnType(String typeName) {
+  ResolvedType resolveColumnType(String /*?*/ typeName) {
     if (typeName == null) {
       return const ResolvedType(type: BasicType.blob);
     }
@@ -74,6 +106,10 @@ class SchemaFromCreateTable {
       }
       if (upper.contains('DATE')) {
         return const ResolvedType(type: BasicType.int, hint: IsDateTime());
+      }
+
+      if (upper.contains('ENUM')) {
+        return const ResolvedType(type: BasicType.int);
       }
     }
 

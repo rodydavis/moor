@@ -61,7 +61,7 @@ Future<void> writeShoppingCart(CartWithItems entry) {
     final cart = entry.cart;
 
     // first, we write the shopping cart
-    await into(shoppingCarts).insert(cart, orReplace: true);
+    await into(shoppingCarts).insert(cart, mode: InsertMode.replace);
 
     // we replace the entries of the cart, so first delete the old ones
     await (delete(shoppingCartEntries)
@@ -69,9 +69,9 @@ Future<void> writeShoppingCart(CartWithItems entry) {
         .go();
 
     // And write the new ones
-    await into(shoppingCartEntries).insertAll([
-      for (var item in entry.items) ShoppingCartEntry(shoppingCart: cart.id, item: item.id)
-    ]);
+    for (final item in entry.items) {
+      await into(shoppingCartEntries).insert(ShoppingCartEntry(shoppingCart: cart.id, item: item.id));
+    }
   });
 }
 ```
@@ -87,7 +87,7 @@ Future<CartWithItems> createEmptyCart() async {
 ```
 
 ## Selecting a cart
-As our `CartWithItems` class consists of multiple compontents that are separated in the
+As our `CartWithItems` class consists of multiple components that are separated in the
 database (information about the cart, and information about the added items), we'll have
 to merge two streams together. The `rxdart` library helps here by providing the 
 `combineLatest2` method, allowing us to write
@@ -129,7 +129,7 @@ type of transformation, RxDart's `switchMap` comes in handy:
 ```dart
 Stream<List<CartWithItems>> watchAllCarts() {
   // start by watching all carts
-  final cartStream = Observable(select(shoppingCarts).watch());
+  final cartStream = select(shoppingCarts).watch();
 
   return cartStream.switchMap((carts) {
     // this method is called whenever the list of carts changes. For each
@@ -146,7 +146,7 @@ Stream<List<CartWithItems>> watchAllCarts() {
           buyableItems.id.equalsExp(shoppingCartEntries.item),
         )
       ],
-    )..where(isIn(shoppingCartEntries.shoppingCart, ids));
+    )..where(shoppingCartEntries.shoppingCart.isIn(ids));
 
     return entryQuery.watch().map((rows) {
       // Store the list of entries for each cart, again using maps for faster

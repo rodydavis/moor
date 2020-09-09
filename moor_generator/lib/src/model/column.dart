@@ -125,6 +125,10 @@ class MoorColumn implements HasDeclaration {
   /// if there is no default expression.
   final String defaultArgument;
 
+  /// Dart code for the `clientDefault` expression, or null if it hasn't been
+  /// set.
+  final String clientDefaultCode;
+
   /// The [UsedTypeConverter], if one has been set on this column.
   final UsedTypeConverter typeConverter;
 
@@ -133,7 +137,7 @@ class MoorColumn implements HasDeclaration {
   /// [int].
   String get dartTypeName {
     if (typeConverter != null) {
-      return typeConverter.mappedType?.displayName;
+      return typeConverter.mappedType?.getDisplayString();
     }
     return variableTypeName;
   }
@@ -166,14 +170,6 @@ class MoorColumn implements HasDeclaration {
         ColumnType.real: 'GeneratedRealColumn',
       }[type];
 
-  /// Whether this column is required for insert statements, meaning that a
-  /// non-absent value must be provided for an insert statement to be valid.
-  bool get requiredDuringInsert {
-    final aliasForPk = type == ColumnType.integer &&
-        features.any((f) => f is PrimaryKey || f is AutoIncrement);
-    return !nullable && defaultArgument == null && !aliasForPk;
-  }
-
   /// The class inside the moor library that represents the same sql type as
   /// this column.
   String get sqlTypeName => sqlTypes[type];
@@ -187,6 +183,7 @@ class MoorColumn implements HasDeclaration {
     this.nullable = false,
     this.features = const [],
     this.defaultArgument,
+    this.clientDefaultCode,
     this.typeConverter,
     this.declaration,
   });
@@ -201,7 +198,7 @@ class PrimaryKey extends ColumnFeature {
   const PrimaryKey();
 }
 
-class AutoIncrement extends ColumnFeature {
+class AutoIncrement extends PrimaryKey {
   static const AutoIncrement _instance = AutoIncrement._();
 
   const AutoIncrement._();

@@ -9,23 +9,28 @@ abstract class BaseSelectStatement extends CrudStatement with ResultSet {
   BaseSelectStatement._(WithClause withClause) : super._(withClause);
 }
 
-class SelectStatement extends BaseSelectStatement implements HasWhereClause {
+/// Marker interface for classes that are a [BaseSelectStatement] but aren't a
+/// [CompoundSelectStatement].
+abstract class SelectStatementNoCompound implements BaseSelectStatement {}
+
+class SelectStatement extends BaseSelectStatement
+    implements StatementWithWhere, SelectStatementNoCompound {
   final bool distinct;
   final List<ResultColumn> columns;
-  final List<Queryable> from;
+  Queryable /*?*/ from;
 
   @override
-  final Expression where;
-  final GroupBy groupBy;
+  Expression where;
+  GroupBy groupBy;
   final List<NamedWindowDeclaration> windowDeclarations;
 
-  final OrderByBase orderBy;
-  final LimitBase limit;
+  OrderByBase orderBy;
+  LimitBase limit;
 
   SelectStatement(
       {WithClause withClause,
       this.distinct = false,
-      this.columns,
+      @required this.columns,
       this.from,
       this.where,
       this.groupBy,
@@ -35,8 +40,20 @@ class SelectStatement extends BaseSelectStatement implements HasWhereClause {
       : super._(withClause);
 
   @override
-  T accept<T>(AstVisitor<T> visitor) {
-    return visitor.visitSelectStatement(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitSelectStatement(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    withClause = transformer.transformNullableChild(withClause, this, arg);
+    transformer.transformChildren(columns, this, arg);
+    from = transformer.transformNullableChild(from, this, arg);
+    where = transformer.transformNullableChild(where, this, arg);
+    groupBy = transformer.transformNullableChild(groupBy, this, arg);
+//    transformer.transformChildren(windowDeclarations, this, arg);
+    limit = transformer.transformNullableChild(limit, this, arg);
+    orderBy = transformer.transformNullableChild(orderBy, this, arg);
   }
 
   @override
@@ -44,7 +61,7 @@ class SelectStatement extends BaseSelectStatement implements HasWhereClause {
     return [
       if (withClause != null) withClause,
       ...columns,
-      if (from != null) ...from,
+      if (from != null) from,
       if (where != null) where,
       if (groupBy != null) groupBy,
       for (var windowDecl in windowDeclarations) windowDecl.definition,
@@ -60,7 +77,7 @@ class SelectStatement extends BaseSelectStatement implements HasWhereClause {
 }
 
 class CompoundSelectStatement extends BaseSelectStatement {
-  final SelectStatement base;
+  SelectStatementNoCompound base;
   final List<CompoundSelectPart> additional;
 
   // the grammar under https://www.sqlite.org/syntax/compound-select-stmt.html
@@ -79,8 +96,15 @@ class CompoundSelectStatement extends BaseSelectStatement {
   }
 
   @override
-  T accept<T>(AstVisitor<T> visitor) {
-    return visitor.visitCompoundSelectStatement(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitCompoundSelectStatement(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    withClause = transformer.transformNullableChild(withClause, this, arg);
+    base = transformer.transformChild(base, this, arg);
+    transformer.transformChildren(additional, this, arg);
   }
 
   @override
@@ -90,9 +114,36 @@ class CompoundSelectStatement extends BaseSelectStatement {
   }
 }
 
+/// A select statement of the form `VALUES (expr-list), ..., (expr-list-N)`.
+class ValuesSelectStatement extends BaseSelectStatement
+    implements SelectStatementNoCompound {
+  final List<Tuple> values;
+
+  ValuesSelectStatement(this.values, {WithClause withClause})
+      : super._(withClause);
+
+  @override
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitValuesSelectStatement(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    transformer.transformChildren(values, this, arg);
+  }
+
+  @override
+  Iterable<AstNode> get childNodes => values;
+
+  @override
+  bool contentEquals(ValuesSelectStatement other) => true;
+}
+
 abstract class ResultColumn extends AstNode {
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitResultColumn(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitResultColumn(this, arg);
+  }
 }
 
 /// A result column that either yields all columns or all columns from a table
@@ -100,10 +151,13 @@ abstract class ResultColumn extends AstNode {
 class StarResultColumn extends ResultColumn {
   final String tableName;
 
-  StarResultColumn(this.tableName);
+  StarResultColumn([this.tableName]);
 
   @override
   Iterable<AstNode> get childNodes => const [];
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {}
 
   @override
   bool contentEquals(StarResultColumn other) {
@@ -113,14 +167,22 @@ class StarResultColumn extends ResultColumn {
 
 class ExpressionResultColumn extends ResultColumn
     implements Renamable, Referencable {
-  final Expression expression;
+  Expression expression;
   @override
   final String as;
 
   ExpressionResultColumn({@required this.expression, this.as});
 
   @override
+  bool get visibleToChildren => false;
+
+  @override
   Iterable<AstNode> get childNodes => [expression];
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    expression = transformer.transformChild(expression, this, arg);
+  }
 
   @override
   bool contentEquals(ExpressionResultColumn other) {
@@ -131,12 +193,20 @@ class ExpressionResultColumn extends ResultColumn
 class GroupBy extends AstNode {
   /// The list of expressions that form the partition
   final List<Expression> by;
-  final Expression having;
+  Expression having;
 
   GroupBy({@required this.by, this.having});
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitGroupBy(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitGroupBy(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    transformer.transformChildren(by, this, arg);
+    transformer.transformChild(having, this, arg);
+  }
 
   @override
   Iterable<AstNode> get childNodes => [...by, if (having != null) having];
@@ -156,7 +226,7 @@ enum CompoundSelectMode {
 
 class CompoundSelectPart extends AstNode {
   final CompoundSelectMode mode;
-  final SelectStatement select;
+  SelectStatementNoCompound select;
 
   /// The first token of this statement, so either union, intersect or except.
   Token firstModeToken;
@@ -170,7 +240,14 @@ class CompoundSelectPart extends AstNode {
   Iterable<AstNode> get childNodes => [select];
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitCompoundSelectPart(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitCompoundSelectPart(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    select = transformer.transformChild(select, this, arg);
+  }
 
   @override
   bool contentEquals(CompoundSelectPart other) => mode == other.mode;

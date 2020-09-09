@@ -34,7 +34,7 @@ WITH RECURSIVE
   SELECT x FROM cnt;
   
 test2:
-WITH alias(first, second) AS (SELECT * FROM foo) SELECT * FROM alias;
+WITH alias("first", second) AS (SELECT * FROM foo) SELECT * FROM alias;
          ''',
       },
     );
@@ -81,7 +81,7 @@ WITH alias(first, second) AS (SELECT * FROM foo) SELECT * FROM alias;
     final resultSet = query.resultSet;
 
     expect(resultSet.matchingTable, isNotNull);
-    expect(resultSet.matchingTable.displayName, 'foo');
+    expect(resultSet.matchingTable.table.displayName, 'foo');
     expect(resultSet.needsOwnClass, isFalse);
   });
 }

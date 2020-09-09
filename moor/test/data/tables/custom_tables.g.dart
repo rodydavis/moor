@@ -7,134 +7,298 @@ part of 'custom_tables.dart';
 // **************************************************************************
 
 // ignore_for_file: unnecessary_brace_in_string_interps, unnecessary_this
-class NoId extends DataClass implements Insertable<NoId> {
-  final Uint8List payload;
-  NoId({@required this.payload});
-  factory NoId.fromData(Map<String, dynamic> data, GeneratedDatabase db,
+class Config extends DataClass implements Insertable<Config> {
+  final String configKey;
+  final String configValue;
+  final SyncType syncState;
+  final SyncType syncStateImplicit;
+  Config(
+      {@required this.configKey,
+      this.configValue,
+      this.syncState,
+      this.syncStateImplicit});
+  factory Config.fromData(Map<String, dynamic> data, GeneratedDatabase db,
       {String prefix}) {
     final effectivePrefix = prefix ?? '';
-    final uint8ListType = db.typeSystem.forDartType<Uint8List>();
-    return NoId(
-      payload: uint8ListType
-          .mapFromDatabaseResponse(data['${effectivePrefix}payload']),
+    final stringType = db.typeSystem.forDartType<String>();
+    final intType = db.typeSystem.forDartType<int>();
+    return Config(
+      configKey: stringType
+          .mapFromDatabaseResponse(data['${effectivePrefix}config_key']),
+      configValue: stringType
+          .mapFromDatabaseResponse(data['${effectivePrefix}config_value']),
+      syncState: ConfigTable.$converter0.mapToDart(intType
+          .mapFromDatabaseResponse(data['${effectivePrefix}sync_state'])),
+      syncStateImplicit: ConfigTable.$converter1.mapToDart(
+          intType.mapFromDatabaseResponse(
+              data['${effectivePrefix}sync_state_implicit'])),
     );
   }
-  factory NoId.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return NoId(
-      payload: serializer.fromJson<Uint8List>(json['payload']),
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || configKey != null) {
+      map['config_key'] = Variable<String>(configKey);
+    }
+    if (!nullToAbsent || configValue != null) {
+      map['config_value'] = Variable<String>(configValue);
+    }
+    if (!nullToAbsent || syncState != null) {
+      final converter = ConfigTable.$converter0;
+      map['sync_state'] = Variable<int>(converter.mapToSql(syncState));
+    }
+    if (!nullToAbsent || syncStateImplicit != null) {
+      final converter = ConfigTable.$converter1;
+      map['sync_state_implicit'] =
+          Variable<int>(converter.mapToSql(syncStateImplicit));
+    }
+    return map;
+  }
+
+  ConfigCompanion toCompanion(bool nullToAbsent) {
+    return ConfigCompanion(
+      configKey: configKey == null && nullToAbsent
+          ? const Value.absent()
+          : Value(configKey),
+      configValue: configValue == null && nullToAbsent
+          ? const Value.absent()
+          : Value(configValue),
+      syncState: syncState == null && nullToAbsent
+          ? const Value.absent()
+          : Value(syncState),
+      syncStateImplicit: syncStateImplicit == null && nullToAbsent
+          ? const Value.absent()
+          : Value(syncStateImplicit),
     );
   }
-  factory NoId.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
-      NoId.fromJson(DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+
+  factory Config.fromJson(Map<String, dynamic> json,
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return Config(
+      configKey: serializer.fromJson<String>(json['config_key']),
+      configValue: serializer.fromJson<String>(json['config_value']),
+      syncState: serializer.fromJson<SyncType>(json['sync_state']),
+      syncStateImplicit:
+          serializer.fromJson<SyncType>(json['sync_state_implicit']),
+    );
+  }
+  factory Config.fromJsonString(String encodedJson,
+          {ValueSerializer serializer}) =>
+      Config.fromJson(DataClass.parseJson(encodedJson) as Map<String, dynamic>,
           serializer: serializer);
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
-      'payload': serializer.toJson<Uint8List>(payload),
+      'config_key': serializer.toJson<String>(configKey),
+      'config_value': serializer.toJson<String>(configValue),
+      'sync_state': serializer.toJson<SyncType>(syncState),
+      'sync_state_implicit': serializer.toJson<SyncType>(syncStateImplicit),
     };
   }
 
-  @override
-  NoIdsCompanion createCompanion(bool nullToAbsent) {
-    return NoIdsCompanion(
-      payload: payload == null && nullToAbsent
-          ? const Value.absent()
-          : Value(payload),
-    );
-  }
-
-  NoId copyWith({Uint8List payload}) => NoId(
-        payload: payload ?? this.payload,
+  Config copyWith(
+          {String configKey,
+          String configValue,
+          SyncType syncState,
+          SyncType syncStateImplicit}) =>
+      Config(
+        configKey: configKey ?? this.configKey,
+        configValue: configValue ?? this.configValue,
+        syncState: syncState ?? this.syncState,
+        syncStateImplicit: syncStateImplicit ?? this.syncStateImplicit,
       );
   @override
   String toString() {
-    return (StringBuffer('NoId(')..write('payload: $payload')..write(')'))
+    return (StringBuffer('Config(')
+          ..write('configKey: $configKey, ')
+          ..write('configValue: $configValue, ')
+          ..write('syncState: $syncState, ')
+          ..write('syncStateImplicit: $syncStateImplicit')
+          ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => $mrjf(payload.hashCode);
+  int get hashCode => $mrjf($mrjc(
+      configKey.hashCode,
+      $mrjc(configValue.hashCode,
+          $mrjc(syncState.hashCode, syncStateImplicit.hashCode))));
   @override
   bool operator ==(dynamic other) =>
       identical(this, other) ||
-      (other is NoId && other.payload == this.payload);
+      (other is Config &&
+          other.configKey == this.configKey &&
+          other.configValue == this.configValue &&
+          other.syncState == this.syncState &&
+          other.syncStateImplicit == this.syncStateImplicit);
 }
 
-class NoIdsCompanion extends UpdateCompanion<NoId> {
-  final Value<Uint8List> payload;
-  const NoIdsCompanion({
-    this.payload = const Value.absent(),
+class ConfigCompanion extends UpdateCompanion<Config> {
+  final Value<String> configKey;
+  final Value<String> configValue;
+  final Value<SyncType> syncState;
+  final Value<SyncType> syncStateImplicit;
+  const ConfigCompanion({
+    this.configKey = const Value.absent(),
+    this.configValue = const Value.absent(),
+    this.syncState = const Value.absent(),
+    this.syncStateImplicit = const Value.absent(),
   });
-  NoIdsCompanion.insert({
-    @required Uint8List payload,
-  }) : payload = Value(payload);
-  NoIdsCompanion copyWith({Value<Uint8List> payload}) {
-    return NoIdsCompanion(
-      payload: payload ?? this.payload,
+  ConfigCompanion.insert({
+    @required String configKey,
+    this.configValue = const Value.absent(),
+    this.syncState = const Value.absent(),
+    this.syncStateImplicit = const Value.absent(),
+  }) : configKey = Value(configKey);
+  static Insertable<Config> custom({
+    Expression<String> configKey,
+    Expression<String> configValue,
+    Expression<int> syncState,
+    Expression<int> syncStateImplicit,
+  }) {
+    return RawValuesInsertable({
+      if (configKey != null) 'config_key': configKey,
+      if (configValue != null) 'config_value': configValue,
+      if (syncState != null) 'sync_state': syncState,
+      if (syncStateImplicit != null) 'sync_state_implicit': syncStateImplicit,
+    });
+  }
+
+  ConfigCompanion copyWith(
+      {Value<String> configKey,
+      Value<String> configValue,
+      Value<SyncType> syncState,
+      Value<SyncType> syncStateImplicit}) {
+    return ConfigCompanion(
+      configKey: configKey ?? this.configKey,
+      configValue: configValue ?? this.configValue,
+      syncState: syncState ?? this.syncState,
+      syncStateImplicit: syncStateImplicit ?? this.syncStateImplicit,
     );
   }
-}
-
-class NoIds extends Table with TableInfo<NoIds, NoId> {
-  final GeneratedDatabase _db;
-  final String _alias;
-  NoIds(this._db, [this._alias]);
-  final VerificationMeta _payloadMeta = const VerificationMeta('payload');
-  GeneratedBlobColumn _payload;
-  GeneratedBlobColumn get payload => _payload ??= _constructPayload();
-  GeneratedBlobColumn _constructPayload() {
-    return GeneratedBlobColumn('payload', $tableName, false,
-        $customConstraints: 'NOT NULL PRIMARY KEY');
-  }
 
   @override
-  List<GeneratedColumn> get $columns => [payload];
-  @override
-  NoIds get asDslTable => this;
-  @override
-  String get $tableName => _alias ?? 'no_ids';
-  @override
-  final String actualTableName = 'no_ids';
-  @override
-  VerificationContext validateIntegrity(NoIdsCompanion d,
-      {bool isInserting = false}) {
-    final context = VerificationContext();
-    if (d.payload.present) {
-      context.handle(_payloadMeta,
-          payload.isAcceptableValue(d.payload.value, _payloadMeta));
-    } else if (payload.isRequired && isInserting) {
-      context.missing(_payloadMeta);
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (configKey.present) {
+      map['config_key'] = Variable<String>(configKey.value);
     }
-    return context;
-  }
-
-  @override
-  Set<GeneratedColumn> get $primaryKey => {payload};
-  @override
-  NoId map(Map<String, dynamic> data, {String tablePrefix}) {
-    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : null;
-    return NoId.fromData(data, _db, prefix: effectivePrefix);
-  }
-
-  @override
-  Map<String, Variable> entityToSql(NoIdsCompanion d) {
-    final map = <String, Variable>{};
-    if (d.payload.present) {
-      map['payload'] = Variable<Uint8List, BlobType>(d.payload.value);
+    if (configValue.present) {
+      map['config_value'] = Variable<String>(configValue.value);
+    }
+    if (syncState.present) {
+      final converter = ConfigTable.$converter0;
+      map['sync_state'] = Variable<int>(converter.mapToSql(syncState.value));
+    }
+    if (syncStateImplicit.present) {
+      final converter = ConfigTable.$converter1;
+      map['sync_state_implicit'] =
+          Variable<int>(converter.mapToSql(syncStateImplicit.value));
     }
     return map;
   }
 
   @override
-  NoIds createAlias(String alias) {
-    return NoIds(_db, alias);
+  String toString() {
+    return (StringBuffer('ConfigCompanion(')
+          ..write('configKey: $configKey, ')
+          ..write('configValue: $configValue, ')
+          ..write('syncState: $syncState, ')
+          ..write('syncStateImplicit: $syncStateImplicit')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class ConfigTable extends Table with TableInfo<ConfigTable, Config> {
+  final GeneratedDatabase _db;
+  final String _alias;
+  ConfigTable(this._db, [this._alias]);
+  final VerificationMeta _configKeyMeta = const VerificationMeta('configKey');
+  GeneratedTextColumn _configKey;
+  GeneratedTextColumn get configKey => _configKey ??= _constructConfigKey();
+  GeneratedTextColumn _constructConfigKey() {
+    return GeneratedTextColumn('config_key', $tableName, false,
+        $customConstraints: 'not null primary key');
+  }
+
+  final VerificationMeta _configValueMeta =
+      const VerificationMeta('configValue');
+  GeneratedTextColumn _configValue;
+  GeneratedTextColumn get configValue =>
+      _configValue ??= _constructConfigValue();
+  GeneratedTextColumn _constructConfigValue() {
+    return GeneratedTextColumn('config_value', $tableName, true,
+        $customConstraints: '');
+  }
+
+  final VerificationMeta _syncStateMeta = const VerificationMeta('syncState');
+  GeneratedIntColumn _syncState;
+  GeneratedIntColumn get syncState => _syncState ??= _constructSyncState();
+  GeneratedIntColumn _constructSyncState() {
+    return GeneratedIntColumn('sync_state', $tableName, true,
+        $customConstraints: '');
+  }
+
+  final VerificationMeta _syncStateImplicitMeta =
+      const VerificationMeta('syncStateImplicit');
+  GeneratedIntColumn _syncStateImplicit;
+  GeneratedIntColumn get syncStateImplicit =>
+      _syncStateImplicit ??= _constructSyncStateImplicit();
+  GeneratedIntColumn _constructSyncStateImplicit() {
+    return GeneratedIntColumn('sync_state_implicit', $tableName, true,
+        $customConstraints: '');
   }
 
   @override
-  bool get withoutRowId => true;
+  List<GeneratedColumn> get $columns =>
+      [configKey, configValue, syncState, syncStateImplicit];
+  @override
+  ConfigTable get asDslTable => this;
+  @override
+  String get $tableName => _alias ?? 'config';
+  @override
+  final String actualTableName = 'config';
+  @override
+  VerificationContext validateIntegrity(Insertable<Config> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('config_key')) {
+      context.handle(_configKeyMeta,
+          configKey.isAcceptableOrUnknown(data['config_key'], _configKeyMeta));
+    } else if (isInserting) {
+      context.missing(_configKeyMeta);
+    }
+    if (data.containsKey('config_value')) {
+      context.handle(
+          _configValueMeta,
+          configValue.isAcceptableOrUnknown(
+              data['config_value'], _configValueMeta));
+    }
+    context.handle(_syncStateMeta, const VerificationResult.success());
+    context.handle(_syncStateImplicitMeta, const VerificationResult.success());
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {configKey};
+  @override
+  Config map(Map<String, dynamic> data, {String tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : null;
+    return Config.fromData(data, _db, prefix: effectivePrefix);
+  }
+
+  @override
+  ConfigTable createAlias(String alias) {
+    return ConfigTable(_db, alias);
+  }
+
+  static TypeConverter<SyncType, int> $converter0 = const SyncTypeConverter();
+  static TypeConverter<SyncType, int> $converter1 =
+      const EnumIndexConverter<SyncType>(SyncType.values);
   @override
   bool get dontWriteConstraints => true;
 }
@@ -153,33 +317,45 @@ class WithDefault extends DataClass implements Insertable<WithDefault> {
       b: intType.mapFromDatabaseResponse(data['${effectivePrefix}b']),
     );
   }
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || a != null) {
+      map['a'] = Variable<String>(a);
+    }
+    if (!nullToAbsent || b != null) {
+      map['b'] = Variable<int>(b);
+    }
+    return map;
+  }
+
+  WithDefaultsCompanion toCompanion(bool nullToAbsent) {
+    return WithDefaultsCompanion(
+      a: a == null && nullToAbsent ? const Value.absent() : Value(a),
+      b: b == null && nullToAbsent ? const Value.absent() : Value(b),
+    );
+  }
+
   factory WithDefault.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
     return WithDefault(
       a: serializer.fromJson<String>(json['a']),
       b: serializer.fromJson<int>(json['b']),
     );
   }
   factory WithDefault.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
+          {ValueSerializer serializer}) =>
       WithDefault.fromJson(
           DataClass.parseJson(encodedJson) as Map<String, dynamic>,
           serializer: serializer);
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'a': serializer.toJson<String>(a),
       'b': serializer.toJson<int>(b),
     };
-  }
-
-  @override
-  WithDefaultsCompanion createCompanion(bool nullToAbsent) {
-    return WithDefaultsCompanion(
-      a: a == null && nullToAbsent ? const Value.absent() : Value(a),
-      b: b == null && nullToAbsent ? const Value.absent() : Value(b),
-    );
   }
 
   WithDefault copyWith({String a, int b}) => WithDefault(
@@ -214,11 +390,42 @@ class WithDefaultsCompanion extends UpdateCompanion<WithDefault> {
     this.a = const Value.absent(),
     this.b = const Value.absent(),
   });
+  static Insertable<WithDefault> custom({
+    Expression<String> a,
+    Expression<int> b,
+  }) {
+    return RawValuesInsertable({
+      if (a != null) 'a': a,
+      if (b != null) 'b': b,
+    });
+  }
+
   WithDefaultsCompanion copyWith({Value<String> a, Value<int> b}) {
     return WithDefaultsCompanion(
       a: a ?? this.a,
       b: b ?? this.b,
     );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (a.present) {
+      map['a'] = Variable<String>(a.value);
+    }
+    if (b.present) {
+      map['b'] = Variable<int>(b.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('WithDefaultsCompanion(')
+          ..write('a: $a, ')
+          ..write('b: $b')
+          ..write(')'))
+        .toString();
   }
 }
 
@@ -232,8 +439,7 @@ class WithDefaults extends Table with TableInfo<WithDefaults, WithDefault> {
   GeneratedTextColumn _constructA() {
     return GeneratedTextColumn('a', $tableName, true,
         $customConstraints: 'DEFAULT \'something\'',
-        defaultValue:
-            const CustomExpression<String, StringType>('\'something\''));
+        defaultValue: const CustomExpression<String>('\'something\''));
   }
 
   final VerificationMeta _bMeta = const VerificationMeta('b');
@@ -253,18 +459,15 @@ class WithDefaults extends Table with TableInfo<WithDefaults, WithDefault> {
   @override
   final String actualTableName = 'with_defaults';
   @override
-  VerificationContext validateIntegrity(WithDefaultsCompanion d,
+  VerificationContext validateIntegrity(Insertable<WithDefault> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.a.present) {
-      context.handle(_aMeta, a.isAcceptableValue(d.a.value, _aMeta));
-    } else if (a.isRequired && isInserting) {
-      context.missing(_aMeta);
+    final data = instance.toColumns(true);
+    if (data.containsKey('a')) {
+      context.handle(_aMeta, a.isAcceptableOrUnknown(data['a'], _aMeta));
     }
-    if (d.b.present) {
-      context.handle(_bMeta, b.isAcceptableValue(d.b.value, _bMeta));
-    } else if (b.isRequired && isInserting) {
-      context.missing(_bMeta);
+    if (data.containsKey('b')) {
+      context.handle(_bMeta, b.isAcceptableOrUnknown(data['b'], _bMeta));
     }
     return context;
   }
@@ -278,22 +481,168 @@ class WithDefaults extends Table with TableInfo<WithDefaults, WithDefault> {
   }
 
   @override
-  Map<String, Variable> entityToSql(WithDefaultsCompanion d) {
-    final map = <String, Variable>{};
-    if (d.a.present) {
-      map['a'] = Variable<String, StringType>(d.a.value);
+  WithDefaults createAlias(String alias) {
+    return WithDefaults(_db, alias);
+  }
+
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class NoId extends DataClass implements Insertable<NoId> {
+  final Uint8List payload;
+  NoId({@required this.payload});
+  factory NoId.fromData(Map<String, dynamic> data, GeneratedDatabase db,
+      {String prefix}) {
+    final effectivePrefix = prefix ?? '';
+    final uint8ListType = db.typeSystem.forDartType<Uint8List>();
+    return NoId(
+      payload: uint8ListType
+          .mapFromDatabaseResponse(data['${effectivePrefix}payload']),
+    );
+  }
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || payload != null) {
+      map['payload'] = Variable<Uint8List>(payload);
     }
-    if (d.b.present) {
-      map['b'] = Variable<int, IntType>(d.b.value);
+    return map;
+  }
+
+  NoIdsCompanion toCompanion(bool nullToAbsent) {
+    return NoIdsCompanion(
+      payload: payload == null && nullToAbsent
+          ? const Value.absent()
+          : Value(payload),
+    );
+  }
+
+  factory NoId.fromJson(Map<String, dynamic> json,
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return NoId(
+      payload: serializer.fromJson<Uint8List>(json['payload']),
+    );
+  }
+  factory NoId.fromJsonString(String encodedJson,
+          {ValueSerializer serializer}) =>
+      NoId.fromJson(DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+          serializer: serializer);
+  @override
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'payload': serializer.toJson<Uint8List>(payload),
+    };
+  }
+
+  NoId copyWith({Uint8List payload}) => NoId(
+        payload: payload ?? this.payload,
+      );
+  @override
+  String toString() {
+    return (StringBuffer('NoId(')..write('payload: $payload')..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => $mrjf(payload.hashCode);
+  @override
+  bool operator ==(dynamic other) =>
+      identical(this, other) ||
+      (other is NoId && other.payload == this.payload);
+}
+
+class NoIdsCompanion extends UpdateCompanion<NoId> {
+  final Value<Uint8List> payload;
+  const NoIdsCompanion({
+    this.payload = const Value.absent(),
+  });
+  NoIdsCompanion.insert({
+    @required Uint8List payload,
+  }) : payload = Value(payload);
+  static Insertable<NoId> custom({
+    Expression<Uint8List> payload,
+  }) {
+    return RawValuesInsertable({
+      if (payload != null) 'payload': payload,
+    });
+  }
+
+  NoIdsCompanion copyWith({Value<Uint8List> payload}) {
+    return NoIdsCompanion(
+      payload: payload ?? this.payload,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (payload.present) {
+      map['payload'] = Variable<Uint8List>(payload.value);
     }
     return map;
   }
 
   @override
-  WithDefaults createAlias(String alias) {
-    return WithDefaults(_db, alias);
+  String toString() {
+    return (StringBuffer('NoIdsCompanion(')
+          ..write('payload: $payload')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class NoIds extends Table with TableInfo<NoIds, NoId> {
+  final GeneratedDatabase _db;
+  final String _alias;
+  NoIds(this._db, [this._alias]);
+  final VerificationMeta _payloadMeta = const VerificationMeta('payload');
+  GeneratedBlobColumn _payload;
+  GeneratedBlobColumn get payload => _payload ??= _constructPayload();
+  GeneratedBlobColumn _constructPayload() {
+    return GeneratedBlobColumn('payload', $tableName, false,
+        $customConstraints: 'NOT NULL PRIMARY KEY');
   }
 
+  @override
+  List<GeneratedColumn> get $columns => [payload];
+  @override
+  NoIds get asDslTable => this;
+  @override
+  String get $tableName => _alias ?? 'no_ids';
+  @override
+  final String actualTableName = 'no_ids';
+  @override
+  VerificationContext validateIntegrity(Insertable<NoId> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('payload')) {
+      context.handle(_payloadMeta,
+          payload.isAcceptableOrUnknown(data['payload'], _payloadMeta));
+    } else if (isInserting) {
+      context.missing(_payloadMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {payload};
+  @override
+  NoId map(Map<String, dynamic> data, {String tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : null;
+    return NoId.fromData(data, _db, prefix: effectivePrefix);
+  }
+
+  @override
+  NoIds createAlias(String alias) {
+    return NoIds(_db, alias);
+  }
+
+  @override
+  bool get withoutRowId => true;
   @override
   bool get dontWriteConstraints => true;
 }
@@ -316,8 +665,32 @@ class WithConstraint extends DataClass implements Insertable<WithConstraint> {
       c: doubleType.mapFromDatabaseResponse(data['${effectivePrefix}c']),
     );
   }
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || a != null) {
+      map['a'] = Variable<String>(a);
+    }
+    if (!nullToAbsent || b != null) {
+      map['b'] = Variable<int>(b);
+    }
+    if (!nullToAbsent || c != null) {
+      map['c'] = Variable<double>(c);
+    }
+    return map;
+  }
+
+  WithConstraintsCompanion toCompanion(bool nullToAbsent) {
+    return WithConstraintsCompanion(
+      a: a == null && nullToAbsent ? const Value.absent() : Value(a),
+      b: b == null && nullToAbsent ? const Value.absent() : Value(b),
+      c: c == null && nullToAbsent ? const Value.absent() : Value(c),
+    );
+  }
+
   factory WithConstraint.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
     return WithConstraint(
       a: serializer.fromJson<String>(json['a']),
       b: serializer.fromJson<int>(json['b']),
@@ -325,27 +698,18 @@ class WithConstraint extends DataClass implements Insertable<WithConstraint> {
     );
   }
   factory WithConstraint.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
+          {ValueSerializer serializer}) =>
       WithConstraint.fromJson(
           DataClass.parseJson(encodedJson) as Map<String, dynamic>,
           serializer: serializer);
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'a': serializer.toJson<String>(a),
       'b': serializer.toJson<int>(b),
       'c': serializer.toJson<double>(c),
     };
-  }
-
-  @override
-  WithConstraintsCompanion createCompanion(bool nullToAbsent) {
-    return WithConstraintsCompanion(
-      a: a == null && nullToAbsent ? const Value.absent() : Value(a),
-      b: b == null && nullToAbsent ? const Value.absent() : Value(b),
-      c: c == null && nullToAbsent ? const Value.absent() : Value(c),
-    );
   }
 
   WithConstraint copyWith({String a, int b, double c}) => WithConstraint(
@@ -388,6 +752,18 @@ class WithConstraintsCompanion extends UpdateCompanion<WithConstraint> {
     @required int b,
     this.c = const Value.absent(),
   }) : b = Value(b);
+  static Insertable<WithConstraint> custom({
+    Expression<String> a,
+    Expression<int> b,
+    Expression<double> c,
+  }) {
+    return RawValuesInsertable({
+      if (a != null) 'a': a,
+      if (b != null) 'b': b,
+      if (c != null) 'c': c,
+    });
+  }
+
   WithConstraintsCompanion copyWith(
       {Value<String> a, Value<int> b, Value<double> c}) {
     return WithConstraintsCompanion(
@@ -395,6 +771,31 @@ class WithConstraintsCompanion extends UpdateCompanion<WithConstraint> {
       b: b ?? this.b,
       c: c ?? this.c,
     );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (a.present) {
+      map['a'] = Variable<String>(a.value);
+    }
+    if (b.present) {
+      map['b'] = Variable<int>(b.value);
+    }
+    if (c.present) {
+      map['c'] = Variable<double>(c.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('WithConstraintsCompanion(')
+          ..write('a: $a, ')
+          ..write('b: $b, ')
+          ..write('c: $c')
+          ..write(')'))
+        .toString();
   }
 }
 
@@ -434,23 +835,20 @@ class WithConstraints extends Table
   @override
   final String actualTableName = 'with_constraints';
   @override
-  VerificationContext validateIntegrity(WithConstraintsCompanion d,
+  VerificationContext validateIntegrity(Insertable<WithConstraint> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.a.present) {
-      context.handle(_aMeta, a.isAcceptableValue(d.a.value, _aMeta));
-    } else if (a.isRequired && isInserting) {
-      context.missing(_aMeta);
+    final data = instance.toColumns(true);
+    if (data.containsKey('a')) {
+      context.handle(_aMeta, a.isAcceptableOrUnknown(data['a'], _aMeta));
     }
-    if (d.b.present) {
-      context.handle(_bMeta, b.isAcceptableValue(d.b.value, _bMeta));
-    } else if (b.isRequired && isInserting) {
+    if (data.containsKey('b')) {
+      context.handle(_bMeta, b.isAcceptableOrUnknown(data['b'], _bMeta));
+    } else if (isInserting) {
       context.missing(_bMeta);
     }
-    if (d.c.present) {
-      context.handle(_cMeta, c.isAcceptableValue(d.c.value, _cMeta));
-    } else if (c.isRequired && isInserting) {
-      context.missing(_cMeta);
+    if (data.containsKey('c')) {
+      context.handle(_cMeta, c.isAcceptableOrUnknown(data['c'], _cMeta));
     }
     return context;
   }
@@ -461,21 +859,6 @@ class WithConstraints extends Table
   WithConstraint map(Map<String, dynamic> data, {String tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : null;
     return WithConstraint.fromData(data, _db, prefix: effectivePrefix);
-  }
-
-  @override
-  Map<String, Variable> entityToSql(WithConstraintsCompanion d) {
-    final map = <String, Variable>{};
-    if (d.a.present) {
-      map['a'] = Variable<String, StringType>(d.a.value);
-    }
-    if (d.b.present) {
-      map['b'] = Variable<int, IntType>(d.b.value);
-    }
-    if (d.c.present) {
-      map['c'] = Variable<double, RealType>(d.c.value);
-    }
-    return map;
   }
 
   @override
@@ -490,181 +873,13 @@ class WithConstraints extends Table
   bool get dontWriteConstraints => true;
 }
 
-class Config extends DataClass implements Insertable<Config> {
-  final String configKey;
-  final String configValue;
-  Config({@required this.configKey, this.configValue});
-  factory Config.fromData(Map<String, dynamic> data, GeneratedDatabase db,
-      {String prefix}) {
-    final effectivePrefix = prefix ?? '';
-    final stringType = db.typeSystem.forDartType<String>();
-    return Config(
-      configKey: stringType
-          .mapFromDatabaseResponse(data['${effectivePrefix}config_key']),
-      configValue: stringType
-          .mapFromDatabaseResponse(data['${effectivePrefix}config_value']),
-    );
-  }
-  factory Config.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return Config(
-      configKey: serializer.fromJson<String>(json['config_key']),
-      configValue: serializer.fromJson<String>(json['config_value']),
-    );
-  }
-  factory Config.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
-      Config.fromJson(DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-          serializer: serializer);
-  @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return <String, dynamic>{
-      'config_key': serializer.toJson<String>(configKey),
-      'config_value': serializer.toJson<String>(configValue),
-    };
-  }
-
-  @override
-  ConfigCompanion createCompanion(bool nullToAbsent) {
-    return ConfigCompanion(
-      configKey: configKey == null && nullToAbsent
-          ? const Value.absent()
-          : Value(configKey),
-      configValue: configValue == null && nullToAbsent
-          ? const Value.absent()
-          : Value(configValue),
-    );
-  }
-
-  Config copyWith({String configKey, String configValue}) => Config(
-        configKey: configKey ?? this.configKey,
-        configValue: configValue ?? this.configValue,
-      );
-  @override
-  String toString() {
-    return (StringBuffer('Config(')
-          ..write('configKey: $configKey, ')
-          ..write('configValue: $configValue')
-          ..write(')'))
-        .toString();
-  }
-
-  @override
-  int get hashCode => $mrjf($mrjc(configKey.hashCode, configValue.hashCode));
-  @override
-  bool operator ==(dynamic other) =>
-      identical(this, other) ||
-      (other is Config &&
-          other.configKey == this.configKey &&
-          other.configValue == this.configValue);
-}
-
-class ConfigCompanion extends UpdateCompanion<Config> {
-  final Value<String> configKey;
-  final Value<String> configValue;
-  const ConfigCompanion({
-    this.configKey = const Value.absent(),
-    this.configValue = const Value.absent(),
-  });
-  ConfigCompanion.insert({
-    @required String configKey,
-    this.configValue = const Value.absent(),
-  }) : configKey = Value(configKey);
-  ConfigCompanion copyWith(
-      {Value<String> configKey, Value<String> configValue}) {
-    return ConfigCompanion(
-      configKey: configKey ?? this.configKey,
-      configValue: configValue ?? this.configValue,
-    );
-  }
-}
-
-class ConfigTable extends Table with TableInfo<ConfigTable, Config> {
-  final GeneratedDatabase _db;
-  final String _alias;
-  ConfigTable(this._db, [this._alias]);
-  final VerificationMeta _configKeyMeta = const VerificationMeta('configKey');
-  GeneratedTextColumn _configKey;
-  GeneratedTextColumn get configKey => _configKey ??= _constructConfigKey();
-  GeneratedTextColumn _constructConfigKey() {
-    return GeneratedTextColumn('config_key', $tableName, false,
-        $customConstraints: 'not null primary key');
-  }
-
-  final VerificationMeta _configValueMeta =
-      const VerificationMeta('configValue');
-  GeneratedTextColumn _configValue;
-  GeneratedTextColumn get configValue =>
-      _configValue ??= _constructConfigValue();
-  GeneratedTextColumn _constructConfigValue() {
-    return GeneratedTextColumn('config_value', $tableName, true,
-        $customConstraints: '');
-  }
-
-  @override
-  List<GeneratedColumn> get $columns => [configKey, configValue];
-  @override
-  ConfigTable get asDslTable => this;
-  @override
-  String get $tableName => _alias ?? 'config';
-  @override
-  final String actualTableName = 'config';
-  @override
-  VerificationContext validateIntegrity(ConfigCompanion d,
-      {bool isInserting = false}) {
-    final context = VerificationContext();
-    if (d.configKey.present) {
-      context.handle(_configKeyMeta,
-          configKey.isAcceptableValue(d.configKey.value, _configKeyMeta));
-    } else if (configKey.isRequired && isInserting) {
-      context.missing(_configKeyMeta);
-    }
-    if (d.configValue.present) {
-      context.handle(_configValueMeta,
-          configValue.isAcceptableValue(d.configValue.value, _configValueMeta));
-    } else if (configValue.isRequired && isInserting) {
-      context.missing(_configValueMeta);
-    }
-    return context;
-  }
-
-  @override
-  Set<GeneratedColumn> get $primaryKey => {configKey};
-  @override
-  Config map(Map<String, dynamic> data, {String tablePrefix}) {
-    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : null;
-    return Config.fromData(data, _db, prefix: effectivePrefix);
-  }
-
-  @override
-  Map<String, Variable> entityToSql(ConfigCompanion d) {
-    final map = <String, Variable>{};
-    if (d.configKey.present) {
-      map['config_key'] = Variable<String, StringType>(d.configKey.value);
-    }
-    if (d.configValue.present) {
-      map['config_value'] = Variable<String, StringType>(d.configValue.value);
-    }
-    return map;
-  }
-
-  @override
-  ConfigTable createAlias(String alias) {
-    return ConfigTable(_db, alias);
-  }
-
-  @override
-  bool get dontWriteConstraints => true;
-}
-
 class MytableData extends DataClass implements Insertable<MytableData> {
   final int someid;
   final String sometext;
-  final bool somebool;
+  final bool isInserting;
   final DateTime somedate;
   MytableData(
-      {@required this.someid, this.sometext, this.somebool, this.somedate});
+      {@required this.someid, this.sometext, this.isInserting, this.somedate});
   factory MytableData.fromData(Map<String, dynamic> data, GeneratedDatabase db,
       {String prefix}) {
     final effectivePrefix = prefix ?? '';
@@ -676,60 +891,78 @@ class MytableData extends DataClass implements Insertable<MytableData> {
       someid: intType.mapFromDatabaseResponse(data['${effectivePrefix}someid']),
       sometext: stringType
           .mapFromDatabaseResponse(data['${effectivePrefix}sometext']),
-      somebool:
-          boolType.mapFromDatabaseResponse(data['${effectivePrefix}somebool']),
+      isInserting: boolType
+          .mapFromDatabaseResponse(data['${effectivePrefix}is_inserting']),
       somedate: dateTimeType
           .mapFromDatabaseResponse(data['${effectivePrefix}somedate']),
     );
   }
-  factory MytableData.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return MytableData(
-      someid: serializer.fromJson<int>(json['someid']),
-      sometext: serializer.fromJson<String>(json['sometext']),
-      somebool: serializer.fromJson<bool>(json['somebool']),
-      somedate: serializer.fromJson<DateTime>(json['somedate']),
-    );
-  }
-  factory MytableData.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
-      MytableData.fromJson(
-          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-          serializer: serializer);
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return <String, dynamic>{
-      'someid': serializer.toJson<int>(someid),
-      'sometext': serializer.toJson<String>(sometext),
-      'somebool': serializer.toJson<bool>(somebool),
-      'somedate': serializer.toJson<DateTime>(somedate),
-    };
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || someid != null) {
+      map['someid'] = Variable<int>(someid);
+    }
+    if (!nullToAbsent || sometext != null) {
+      map['sometext'] = Variable<String>(sometext);
+    }
+    if (!nullToAbsent || isInserting != null) {
+      map['is_inserting'] = Variable<bool>(isInserting);
+    }
+    if (!nullToAbsent || somedate != null) {
+      map['somedate'] = Variable<DateTime>(somedate);
+    }
+    return map;
   }
 
-  @override
-  MytableCompanion createCompanion(bool nullToAbsent) {
+  MytableCompanion toCompanion(bool nullToAbsent) {
     return MytableCompanion(
       someid:
           someid == null && nullToAbsent ? const Value.absent() : Value(someid),
       sometext: sometext == null && nullToAbsent
           ? const Value.absent()
           : Value(sometext),
-      somebool: somebool == null && nullToAbsent
+      isInserting: isInserting == null && nullToAbsent
           ? const Value.absent()
-          : Value(somebool),
+          : Value(isInserting),
       somedate: somedate == null && nullToAbsent
           ? const Value.absent()
           : Value(somedate),
     );
   }
 
+  factory MytableData.fromJson(Map<String, dynamic> json,
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return MytableData(
+      someid: serializer.fromJson<int>(json['someid']),
+      sometext: serializer.fromJson<String>(json['sometext']),
+      isInserting: serializer.fromJson<bool>(json['is_inserting']),
+      somedate: serializer.fromJson<DateTime>(json['somedate']),
+    );
+  }
+  factory MytableData.fromJsonString(String encodedJson,
+          {ValueSerializer serializer}) =>
+      MytableData.fromJson(
+          DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+          serializer: serializer);
+  @override
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'someid': serializer.toJson<int>(someid),
+      'sometext': serializer.toJson<String>(sometext),
+      'is_inserting': serializer.toJson<bool>(isInserting),
+      'somedate': serializer.toJson<DateTime>(somedate),
+    };
+  }
+
   MytableData copyWith(
-          {int someid, String sometext, bool somebool, DateTime somedate}) =>
+          {int someid, String sometext, bool isInserting, DateTime somedate}) =>
       MytableData(
         someid: someid ?? this.someid,
         sometext: sometext ?? this.sometext,
-        somebool: somebool ?? this.somebool,
+        isInserting: isInserting ?? this.isInserting,
         somedate: somedate ?? this.somedate,
       );
   @override
@@ -737,53 +970,98 @@ class MytableData extends DataClass implements Insertable<MytableData> {
     return (StringBuffer('MytableData(')
           ..write('someid: $someid, ')
           ..write('sometext: $sometext, ')
-          ..write('somebool: $somebool, ')
+          ..write('isInserting: $isInserting, ')
           ..write('somedate: $somedate')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => $mrjf($mrjc(someid.hashCode,
-      $mrjc(sometext.hashCode, $mrjc(somebool.hashCode, somedate.hashCode))));
+  int get hashCode => $mrjf($mrjc(
+      someid.hashCode,
+      $mrjc(
+          sometext.hashCode, $mrjc(isInserting.hashCode, somedate.hashCode))));
   @override
   bool operator ==(dynamic other) =>
       identical(this, other) ||
       (other is MytableData &&
           other.someid == this.someid &&
           other.sometext == this.sometext &&
-          other.somebool == this.somebool &&
+          other.isInserting == this.isInserting &&
           other.somedate == this.somedate);
 }
 
 class MytableCompanion extends UpdateCompanion<MytableData> {
   final Value<int> someid;
   final Value<String> sometext;
-  final Value<bool> somebool;
+  final Value<bool> isInserting;
   final Value<DateTime> somedate;
   const MytableCompanion({
     this.someid = const Value.absent(),
     this.sometext = const Value.absent(),
-    this.somebool = const Value.absent(),
+    this.isInserting = const Value.absent(),
     this.somedate = const Value.absent(),
   });
   MytableCompanion.insert({
     this.someid = const Value.absent(),
     this.sometext = const Value.absent(),
-    this.somebool = const Value.absent(),
+    this.isInserting = const Value.absent(),
     this.somedate = const Value.absent(),
   });
+  static Insertable<MytableData> custom({
+    Expression<int> someid,
+    Expression<String> sometext,
+    Expression<bool> isInserting,
+    Expression<DateTime> somedate,
+  }) {
+    return RawValuesInsertable({
+      if (someid != null) 'someid': someid,
+      if (sometext != null) 'sometext': sometext,
+      if (isInserting != null) 'is_inserting': isInserting,
+      if (somedate != null) 'somedate': somedate,
+    });
+  }
+
   MytableCompanion copyWith(
       {Value<int> someid,
       Value<String> sometext,
-      Value<bool> somebool,
+      Value<bool> isInserting,
       Value<DateTime> somedate}) {
     return MytableCompanion(
       someid: someid ?? this.someid,
       sometext: sometext ?? this.sometext,
-      somebool: somebool ?? this.somebool,
+      isInserting: isInserting ?? this.isInserting,
       somedate: somedate ?? this.somedate,
     );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (someid.present) {
+      map['someid'] = Variable<int>(someid.value);
+    }
+    if (sometext.present) {
+      map['sometext'] = Variable<String>(sometext.value);
+    }
+    if (isInserting.present) {
+      map['is_inserting'] = Variable<bool>(isInserting.value);
+    }
+    if (somedate.present) {
+      map['somedate'] = Variable<DateTime>(somedate.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('MytableCompanion(')
+          ..write('someid: $someid, ')
+          ..write('sometext: $sometext, ')
+          ..write('isInserting: $isInserting, ')
+          ..write('somedate: $somedate')
+          ..write(')'))
+        .toString();
   }
 }
 
@@ -807,11 +1085,13 @@ class Mytable extends Table with TableInfo<Mytable, MytableData> {
         $customConstraints: '');
   }
 
-  final VerificationMeta _someboolMeta = const VerificationMeta('somebool');
-  GeneratedBoolColumn _somebool;
-  GeneratedBoolColumn get somebool => _somebool ??= _constructSomebool();
-  GeneratedBoolColumn _constructSomebool() {
-    return GeneratedBoolColumn('somebool', $tableName, true,
+  final VerificationMeta _isInsertingMeta =
+      const VerificationMeta('isInserting');
+  GeneratedBoolColumn _isInserting;
+  GeneratedBoolColumn get isInserting =>
+      _isInserting ??= _constructIsInserting();
+  GeneratedBoolColumn _constructIsInserting() {
+    return GeneratedBoolColumn('is_inserting', $tableName, true,
         $customConstraints: '');
   }
 
@@ -824,7 +1104,8 @@ class Mytable extends Table with TableInfo<Mytable, MytableData> {
   }
 
   @override
-  List<GeneratedColumn> get $columns => [someid, sometext, somebool, somedate];
+  List<GeneratedColumn> get $columns =>
+      [someid, sometext, isInserting, somedate];
   @override
   Mytable get asDslTable => this;
   @override
@@ -832,32 +1113,28 @@ class Mytable extends Table with TableInfo<Mytable, MytableData> {
   @override
   final String actualTableName = 'mytable';
   @override
-  VerificationContext validateIntegrity(MytableCompanion d,
+  VerificationContext validateIntegrity(Insertable<MytableData> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.someid.present) {
-      context.handle(
-          _someidMeta, someid.isAcceptableValue(d.someid.value, _someidMeta));
-    } else if (someid.isRequired && isInserting) {
-      context.missing(_someidMeta);
+    final data = instance.toColumns(true);
+    if (data.containsKey('someid')) {
+      context.handle(_someidMeta,
+          someid.isAcceptableOrUnknown(data['someid'], _someidMeta));
     }
-    if (d.sometext.present) {
+    if (data.containsKey('sometext')) {
       context.handle(_sometextMeta,
-          sometext.isAcceptableValue(d.sometext.value, _sometextMeta));
-    } else if (sometext.isRequired && isInserting) {
-      context.missing(_sometextMeta);
+          sometext.isAcceptableOrUnknown(data['sometext'], _sometextMeta));
     }
-    if (d.somebool.present) {
-      context.handle(_someboolMeta,
-          somebool.isAcceptableValue(d.somebool.value, _someboolMeta));
-    } else if (somebool.isRequired && isInserting) {
-      context.missing(_someboolMeta);
+    if (data.containsKey('is_inserting')) {
+      context.handle(
+          _isInsertingMeta,
+          this
+              .isInserting
+              .isAcceptableOrUnknown(data['is_inserting'], _isInsertingMeta));
     }
-    if (d.somedate.present) {
+    if (data.containsKey('somedate')) {
       context.handle(_somedateMeta,
-          somedate.isAcceptableValue(d.somedate.value, _somedateMeta));
-    } else if (somedate.isRequired && isInserting) {
-      context.missing(_somedateMeta);
+          somedate.isAcceptableOrUnknown(data['somedate'], _somedateMeta));
     }
     return context;
   }
@@ -868,24 +1145,6 @@ class Mytable extends Table with TableInfo<Mytable, MytableData> {
   MytableData map(Map<String, dynamic> data, {String tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : null;
     return MytableData.fromData(data, _db, prefix: effectivePrefix);
-  }
-
-  @override
-  Map<String, Variable> entityToSql(MytableCompanion d) {
-    final map = <String, Variable>{};
-    if (d.someid.present) {
-      map['someid'] = Variable<int, IntType>(d.someid.value);
-    }
-    if (d.sometext.present) {
-      map['sometext'] = Variable<String, StringType>(d.sometext.value);
-    }
-    if (d.somebool.present) {
-      map['somebool'] = Variable<bool, BoolType>(d.somebool.value);
-    }
-    if (d.somedate.present) {
-      map['somedate'] = Variable<DateTime, DateTimeType>(d.somedate.value);
-    }
-    return map;
   }
 
   @override
@@ -914,30 +1173,22 @@ class EMail extends DataClass implements Insertable<EMail> {
       body: stringType.mapFromDatabaseResponse(data['${effectivePrefix}body']),
     );
   }
-  factory EMail.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return EMail(
-      sender: serializer.fromJson<String>(json['sender']),
-      title: serializer.fromJson<String>(json['title']),
-      body: serializer.fromJson<String>(json['body']),
-    );
-  }
-  factory EMail.fromJsonString(String encodedJson,
-          {ValueSerializer serializer = const ValueSerializer.defaults()}) =>
-      EMail.fromJson(DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-          serializer: serializer);
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
-    return <String, dynamic>{
-      'sender': serializer.toJson<String>(sender),
-      'title': serializer.toJson<String>(title),
-      'body': serializer.toJson<String>(body),
-    };
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || sender != null) {
+      map['sender'] = Variable<String>(sender);
+    }
+    if (!nullToAbsent || title != null) {
+      map['title'] = Variable<String>(title);
+    }
+    if (!nullToAbsent || body != null) {
+      map['body'] = Variable<String>(body);
+    }
+    return map;
   }
 
-  @override
-  EmailCompanion createCompanion(bool nullToAbsent) {
+  EmailCompanion toCompanion(bool nullToAbsent) {
     return EmailCompanion(
       sender:
           sender == null && nullToAbsent ? const Value.absent() : Value(sender),
@@ -945,6 +1196,29 @@ class EMail extends DataClass implements Insertable<EMail> {
           title == null && nullToAbsent ? const Value.absent() : Value(title),
       body: body == null && nullToAbsent ? const Value.absent() : Value(body),
     );
+  }
+
+  factory EMail.fromJson(Map<String, dynamic> json,
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return EMail(
+      sender: serializer.fromJson<String>(json['sender']),
+      title: serializer.fromJson<String>(json['title']),
+      body: serializer.fromJson<String>(json['body']),
+    );
+  }
+  factory EMail.fromJsonString(String encodedJson,
+          {ValueSerializer serializer}) =>
+      EMail.fromJson(DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+          serializer: serializer);
+  @override
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'sender': serializer.toJson<String>(sender),
+      'title': serializer.toJson<String>(title),
+      'body': serializer.toJson<String>(body),
+    };
   }
 
   EMail copyWith({String sender, String title, String body}) => EMail(
@@ -990,6 +1264,18 @@ class EmailCompanion extends UpdateCompanion<EMail> {
   })  : sender = Value(sender),
         title = Value(title),
         body = Value(body);
+  static Insertable<EMail> custom({
+    Expression<String> sender,
+    Expression<String> title,
+    Expression<String> body,
+  }) {
+    return RawValuesInsertable({
+      if (sender != null) 'sender': sender,
+      if (title != null) 'title': title,
+      if (body != null) 'body': body,
+    });
+  }
+
   EmailCompanion copyWith(
       {Value<String> sender, Value<String> title, Value<String> body}) {
     return EmailCompanion(
@@ -997,6 +1283,31 @@ class EmailCompanion extends UpdateCompanion<EMail> {
       title: title ?? this.title,
       body: body ?? this.body,
     );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (sender.present) {
+      map['sender'] = Variable<String>(sender.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (body.present) {
+      map['body'] = Variable<String>(body.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EmailCompanion(')
+          ..write('sender: $sender, ')
+          ..write('title: $title, ')
+          ..write('body: $body')
+          ..write(')'))
+        .toString();
   }
 }
 
@@ -1038,25 +1349,26 @@ class Email extends Table
   @override
   final String actualTableName = 'email';
   @override
-  VerificationContext validateIntegrity(EmailCompanion d,
+  VerificationContext validateIntegrity(Insertable<EMail> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.sender.present) {
-      context.handle(
-          _senderMeta, sender.isAcceptableValue(d.sender.value, _senderMeta));
-    } else if (sender.isRequired && isInserting) {
+    final data = instance.toColumns(true);
+    if (data.containsKey('sender')) {
+      context.handle(_senderMeta,
+          sender.isAcceptableOrUnknown(data['sender'], _senderMeta));
+    } else if (isInserting) {
       context.missing(_senderMeta);
     }
-    if (d.title.present) {
+    if (data.containsKey('title')) {
       context.handle(
-          _titleMeta, title.isAcceptableValue(d.title.value, _titleMeta));
-    } else if (title.isRequired && isInserting) {
+          _titleMeta, title.isAcceptableOrUnknown(data['title'], _titleMeta));
+    } else if (isInserting) {
       context.missing(_titleMeta);
     }
-    if (d.body.present) {
+    if (data.containsKey('body')) {
       context.handle(
-          _bodyMeta, body.isAcceptableValue(d.body.value, _bodyMeta));
-    } else if (body.isRequired && isInserting) {
+          _bodyMeta, body.isAcceptableOrUnknown(data['body'], _bodyMeta));
+    } else if (isInserting) {
       context.missing(_bodyMeta);
     }
     return context;
@@ -1068,21 +1380,6 @@ class Email extends Table
   EMail map(Map<String, dynamic> data, {String tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : null;
     return EMail.fromData(data, _db, prefix: effectivePrefix);
-  }
-
-  @override
-  Map<String, Variable> entityToSql(EmailCompanion d) {
-    final map = <String, Variable>{};
-    if (d.sender.present) {
-      map['sender'] = Variable<String, StringType>(d.sender.value);
-    }
-    if (d.title.present) {
-      map['title'] = Variable<String, StringType>(d.title.value);
-    }
-    if (d.body.present) {
-      map['body'] = Variable<String, StringType>(d.body.value);
-    }
-    return map;
   }
 
   @override
@@ -1099,30 +1396,40 @@ class Email extends Table
 abstract class _$CustomTablesDb extends GeneratedDatabase {
   _$CustomTablesDb(QueryExecutor e) : super(SqlTypeSystem.defaultInstance, e);
   _$CustomTablesDb.connect(DatabaseConnection c) : super.connect(c);
-  NoIds _noIds;
-  NoIds get noIds => _noIds ??= NoIds(this);
+  ConfigTable _config;
+  ConfigTable get config => _config ??= ConfigTable(this);
+  Index _valueIdx;
+  Index get valueIdx => _valueIdx ??= Index('value_idx',
+      'CREATE INDEX IF NOT EXISTS value_idx ON config (config_value);');
   WithDefaults _withDefaults;
   WithDefaults get withDefaults => _withDefaults ??= WithDefaults(this);
+  Trigger _myTrigger;
+  Trigger get myTrigger => _myTrigger ??= Trigger(
+      'CREATE TRIGGER my_trigger AFTER INSERT ON config BEGIN\n  INSERT INTO with_defaults VALUES (new.config_key, LENGTH(new.config_value));\nEND;',
+      'my_trigger');
+  NoIds _noIds;
+  NoIds get noIds => _noIds ??= NoIds(this);
   WithConstraints _withConstraints;
   WithConstraints get withConstraints =>
       _withConstraints ??= WithConstraints(this);
-  ConfigTable _config;
-  ConfigTable get config => _config ??= ConfigTable(this);
   Mytable _mytable;
   Mytable get mytable => _mytable ??= Mytable(this);
   Email _email;
   Email get email => _email ??= Email(this);
-  Config _rowToConfig(QueryRow row) {
-    return Config(
-      configKey: row.readString('config_key'),
-      configValue: row.readString('config_value'),
-    );
-  }
-
   Selectable<Config> readConfig(String var1) {
-    return customSelectQuery('SELECT * FROM config WHERE config_key = ?',
-        variables: [Variable.withString(var1)],
-        readsFrom: {config}).map(_rowToConfig);
+    return customSelect(
+        'SELECT\n  config_key AS ck,\n  config_value as cf,\n  sync_state AS cs1,\n  sync_state_implicit AS cs2\nFROM config WHERE config_key = ?',
+        variables: [
+          Variable.withString(var1)
+        ],
+        readsFrom: {
+          config
+        }).map((QueryRow row) => config.mapFromRowWithAlias(row, const {
+          'ck': 'config_key',
+          'cf': 'config_value',
+          'cs1': 'sync_state',
+          'cs2': 'sync_state_implicit',
+        }));
   }
 
   Selectable<Config> readMultiple(List<String> var1, OrderBy clause) {
@@ -1131,7 +1438,7 @@ abstract class _$CustomTablesDb extends GeneratedDatabase {
     $arrayStartIndex += var1.length;
     final generatedclause = $write(clause);
     $arrayStartIndex += generatedclause.amountOfVariables;
-    return customSelectQuery(
+    return customSelect(
         'SELECT * FROM config WHERE config_key IN ($expandedvar1) ORDER BY ${generatedclause.sql}',
         variables: [
           for (var $ in var1) Variable.withString($),
@@ -1139,75 +1446,100 @@ abstract class _$CustomTablesDb extends GeneratedDatabase {
         ],
         readsFrom: {
           config
-        }).map(_rowToConfig);
+        }).map(config.mapFromRow);
   }
 
-  Selectable<Config> readDynamic(Expression<bool, BoolType> predicate) {
+  Selectable<Config> readDynamic(Expression<bool> predicate) {
     final generatedpredicate = $write(predicate);
-    return customSelectQuery(
-        'SELECT * FROM config WHERE ${generatedpredicate.sql}',
+    return customSelect('SELECT * FROM config WHERE ${generatedpredicate.sql}',
         variables: [...generatedpredicate.introducedVariables],
-        readsFrom: {config}).map(_rowToConfig);
+        readsFrom: {config}).map(config.mapFromRow);
   }
 
-  Selectable<Config> findValidJsons() {
-    return customSelectQuery(
-        'SELECT * FROM config WHERE json_valid(config_value)',
+  Selectable<String> typeConverterVar(SyncType var1, List<SyncType> var2) {
+    var $arrayStartIndex = 2;
+    final expandedvar2 = $expandVar($arrayStartIndex, var2.length);
+    $arrayStartIndex += var2.length;
+    return customSelect(
+        'SELECT config_key FROM config WHERE sync_state = ? OR sync_state_implicit IN ($expandedvar2)',
+        variables: [
+          Variable.withInt(ConfigTable.$converter0.mapToSql(var1)),
+          for (var $ in var2)
+            Variable.withInt(ConfigTable.$converter1.mapToSql($))
+        ],
+        readsFrom: {
+          config
+        }).map((QueryRow row) => row.readString('config_key'));
+  }
+
+  Selectable<JsonResult> tableValued() {
+    return customSelect(
+        'SELECT "key", "value"\n  FROM config, json_each(config.config_value)\n  WHERE json_valid(config_value)',
         variables: [],
-        readsFrom: {config}).map(_rowToConfig);
+        readsFrom: {config}).map((QueryRow row) {
+      return JsonResult(
+        row: row,
+        key: row.readString('key'),
+        value: row.readString('value'),
+      );
+    });
   }
 
-  MultipleResult _rowToMultipleResult(QueryRow row) {
-    return MultipleResult(
-      a: row.readString('a'),
-      b: row.readInt('b'),
-      c: row.readDouble('c'),
-      a1: row.readString('a'),
-      b1: row.readInt('b'),
-    );
+  Selectable<JsonResult> another() {
+    return customSelect(
+        'SELECT \'one\' AS "key", NULLIF(\'two\', \'another\') AS "value"',
+        variables: [],
+        readsFrom: {}).map((QueryRow row) {
+      return JsonResult(
+        row: row,
+        key: row.readString('key'),
+        value: row.readString('value'),
+      );
+    });
   }
 
-  Selectable<MultipleResult> multiple(Expression<bool, BoolType> predicate) {
+  Selectable<MultipleResult> multiple(Expression<bool> predicate) {
     final generatedpredicate = $write(predicate, hasMultipleTables: true);
-    return customSelectQuery(
-        'SELECT * FROM with_constraints c\n INNER JOIN with_defaults d\n   ON d.a = c.a AND d.b = c.b\n WHERE ${generatedpredicate.sql}',
+    return customSelect(
+        'SELECT d.*, "c"."a" AS "nested_0.a", "c"."b" AS "nested_0.b", "c"."c" AS "nested_0.c" FROM with_constraints c\n INNER JOIN with_defaults d\n   ON d.a = c.a AND d.b = c.b\n WHERE ${generatedpredicate.sql}',
         variables: [...generatedpredicate.introducedVariables],
-        readsFrom: {withConstraints, withDefaults}).map(_rowToMultipleResult);
-  }
-
-  EMail _rowToEMail(QueryRow row) {
-    return EMail(
-      sender: row.readString('sender'),
-      title: row.readString('title'),
-      body: row.readString('body'),
-    );
+        readsFrom: {withConstraints, withDefaults}).map((QueryRow row) {
+      return MultipleResult(
+        row: row,
+        a: row.readString('a'),
+        b: row.readInt('b'),
+        c: withConstraints.mapFromRowOrNull(row, tablePrefix: 'nested_0'),
+      );
+    });
   }
 
   Selectable<EMail> searchEmails(String term) {
-    return customSelectQuery(
+    return customSelect(
         'SELECT * FROM email WHERE email MATCH :term ORDER BY rank',
         variables: [Variable.withString(term)],
-        readsFrom: {email}).map(_rowToEMail);
+        readsFrom: {email}).map(email.mapFromRow);
   }
 
-  ReadRowIdResult _rowToReadRowIdResult(QueryRow row) {
-    return ReadRowIdResult(
-      rowid: row.readInt('rowid'),
-      configKey: row.readString('config_key'),
-      configValue: row.readString('config_value'),
-    );
-  }
-
-  Selectable<ReadRowIdResult> readRowId(Expression<int, IntType> expr) {
+  Selectable<ReadRowIdResult> readRowId(Expression<int> expr) {
     final generatedexpr = $write(expr);
-    return customSelectQuery(
+    return customSelect(
         'SELECT oid, * FROM config WHERE _rowid_ = ${generatedexpr.sql}',
         variables: [...generatedexpr.introducedVariables],
-        readsFrom: {config}).map(_rowToReadRowIdResult);
+        readsFrom: {config}).map((QueryRow row) {
+      return ReadRowIdResult(
+        row: row,
+        rowid: row.readInt('rowid'),
+        configKey: row.readString('config_key'),
+        configValue: row.readString('config_value'),
+        syncState: ConfigTable.$converter0.mapToDart(row.readInt('sync_state')),
+        syncStateImplicit: ConfigTable.$converter1
+            .mapToDart(row.readInt('sync_state_implicit')),
+      );
+    });
   }
 
   Selectable<int> cfeTest() {
-    return customSelectQuery(
+    return customSelect(
         'WITH RECURSIVE\n  cnt(x) AS (\n    SELECT 1\n      UNION ALL\n      SELECT x+1 FROM cnt\n      LIMIT 1000000\n    )\n  SELECT x FROM cnt',
         variables: [],
         readsFrom: {}).map((QueryRow row) => row.readInt('x'));
@@ -1215,61 +1547,136 @@ abstract class _$CustomTablesDb extends GeneratedDatabase {
 
   Future<int> writeConfig(String key, String value) {
     return customInsert(
-      'REPLACE INTO config VALUES (:key, :value)',
+      'REPLACE INTO config (config_key, config_value) VALUES (:key, :value)',
       variables: [Variable.withString(key), Variable.withString(value)],
       updates: {config},
     );
   }
 
   @override
-  List<TableInfo> get allTables =>
-      [noIds, withDefaults, withConstraints, config, mytable, email];
+  Iterable<TableInfo> get allTables => allSchemaEntities.whereType<TableInfo>();
+  @override
+  List<DatabaseSchemaEntity> get allSchemaEntities => [
+        config,
+        valueIdx,
+        withDefaults,
+        myTrigger,
+        OnCreateQuery(
+            'INSERT INTO config (config_key, config_value) VALUES (\'key\', \'values\')'),
+        noIds,
+        withConstraints,
+        mytable,
+        email
+      ];
+  @override
+  StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules(
+        [
+          WritePropagation(
+            on: TableUpdateQuery.onTableName('config',
+                limitUpdateKind: UpdateKind.insert),
+            result: [
+              TableUpdate('with_defaults', kind: UpdateKind.insert),
+            ],
+          ),
+        ],
+      );
 }
 
-class MultipleResult {
+class JsonResult extends CustomResultSet {
+  final String key;
+  final String value;
+  JsonResult({
+    @required QueryRow row,
+    this.key,
+    this.value,
+  }) : super(row);
+  @override
+  int get hashCode => $mrjf($mrjc(key.hashCode, value.hashCode));
+  @override
+  bool operator ==(dynamic other) =>
+      identical(this, other) ||
+      (other is JsonResult &&
+          other.key == this.key &&
+          other.value == this.value);
+  @override
+  String toString() {
+    return (StringBuffer('JsonResult(')
+          ..write('key: $key, ')
+          ..write('value: $value')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class MultipleResult extends CustomResultSet {
   final String a;
   final int b;
-  final double c;
-  final String a1;
-  final int b1;
+  final WithConstraint c;
   MultipleResult({
+    @required QueryRow row,
     this.a,
     this.b,
     this.c,
-    this.a1,
-    this.b1,
-  });
+  }) : super(row);
   @override
-  int get hashCode => $mrjf($mrjc(a.hashCode,
-      $mrjc(b.hashCode, $mrjc(c.hashCode, $mrjc(a1.hashCode, b1.hashCode)))));
+  int get hashCode => $mrjf($mrjc(a.hashCode, $mrjc(b.hashCode, c.hashCode)));
   @override
   bool operator ==(dynamic other) =>
       identical(this, other) ||
       (other is MultipleResult &&
           other.a == this.a &&
           other.b == this.b &&
-          other.c == this.c &&
-          other.a1 == this.a1 &&
-          other.b1 == this.b1);
+          other.c == this.c);
+  @override
+  String toString() {
+    return (StringBuffer('MultipleResult(')
+          ..write('a: $a, ')
+          ..write('b: $b, ')
+          ..write('c: $c')
+          ..write(')'))
+        .toString();
+  }
 }
 
-class ReadRowIdResult {
+class ReadRowIdResult extends CustomResultSet {
   final int rowid;
   final String configKey;
   final String configValue;
+  final SyncType syncState;
+  final SyncType syncStateImplicit;
   ReadRowIdResult({
+    @required QueryRow row,
     this.rowid,
     this.configKey,
     this.configValue,
-  });
+    this.syncState,
+    this.syncStateImplicit,
+  }) : super(row);
   @override
-  int get hashCode => $mrjf(
-      $mrjc(rowid.hashCode, $mrjc(configKey.hashCode, configValue.hashCode)));
+  int get hashCode => $mrjf($mrjc(
+      rowid.hashCode,
+      $mrjc(
+          configKey.hashCode,
+          $mrjc(configValue.hashCode,
+              $mrjc(syncState.hashCode, syncStateImplicit.hashCode)))));
   @override
   bool operator ==(dynamic other) =>
       identical(this, other) ||
       (other is ReadRowIdResult &&
           other.rowid == this.rowid &&
           other.configKey == this.configKey &&
-          other.configValue == this.configValue);
+          other.configValue == this.configValue &&
+          other.syncState == this.syncState &&
+          other.syncStateImplicit == this.syncStateImplicit);
+  @override
+  String toString() {
+    return (StringBuffer('ReadRowIdResult(')
+          ..write('rowid: $rowid, ')
+          ..write('configKey: $configKey, ')
+          ..write('configValue: $configValue, ')
+          ..write('syncState: $syncState, ')
+          ..write('syncStateImplicit: $syncStateImplicit')
+          ..write(')'))
+        .toString();
+  }
 }

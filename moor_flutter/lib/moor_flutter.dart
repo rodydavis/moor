@@ -20,7 +20,6 @@ export 'package:moor/moor.dart';
 typedef DatabaseCreator = FutureOr<void> Function(File file);
 
 class _SqfliteDelegate extends DatabaseDelegate with _SqfliteExecutor {
-  int _loadedSchemaVersion;
   @override
   s.Database db;
 
@@ -35,9 +34,10 @@ class _SqfliteDelegate extends DatabaseDelegate with _SqfliteExecutor {
     singleInstance ??= true;
   }
 
+  DbVersionDelegate _delegate;
   @override
   DbVersionDelegate get versionDelegate {
-    return OnOpenVersionDelegate(() => Future.value(_loadedSchemaVersion));
+    return _delegate ??= _SqfliteVersionDelegate(db);
   }
 
   @override
@@ -48,7 +48,7 @@ class _SqfliteDelegate extends DatabaseDelegate with _SqfliteExecutor {
   bool get isOpen => db != null;
 
   @override
-  Future<void> open([GeneratedDatabase db]) async {
+  Future<void> open(QueryExecutorUser user) async {
     String resolvedPath;
     if (inDbFolder) {
       resolvedPath = join(await s.getDatabasesPath(), path);
@@ -62,17 +62,8 @@ class _SqfliteDelegate extends DatabaseDelegate with _SqfliteExecutor {
     }
 
     // default value when no migration happened
-    _loadedSchemaVersion = db.schemaVersion;
-
-    this.db = await s.openDatabase(
+    db = await s.openDatabase(
       resolvedPath,
-      version: db.schemaVersion,
-      onCreate: (db, version) {
-        _loadedSchemaVersion = 0;
-      },
-      onUpgrade: (db, from, to) {
-        _loadedSchemaVersion = from;
-      },
       singleInstance: singleInstance,
     );
   }
@@ -80,6 +71,23 @@ class _SqfliteDelegate extends DatabaseDelegate with _SqfliteExecutor {
   @override
   Future<void> close() {
     return db.close();
+  }
+}
+
+class _SqfliteVersionDelegate extends DynamicVersionDelegate {
+  final s.Database _db;
+
+  _SqfliteVersionDelegate(this._db);
+
+  @override
+  Future<int> get schemaVersion async {
+    final result = await _db.rawQuery('PRAGMA user_version;');
+    return result.single.values.first as int;
+  }
+
+  @override
+  Future<void> setSchemaVersion(int version) async {
+    await _db.rawUpdate('PRAGMA user_version = $version;');
   }
 }
 
@@ -112,13 +120,11 @@ mixin _SqfliteExecutor on QueryDelegate {
   s.DatabaseExecutor get db;
 
   @override
-  Future<void> runBatched(List<BatchedStatement> statements) async {
+  Future<void> runBatched(BatchedStatements statements) async {
     final batch = db.batch();
 
-    for (final statement in statements) {
-      for (final boundVariables in statement.variables) {
-        batch.execute(statement.sql, boundVariables);
-      }
+    for (final arg in statements.arguments) {
+      batch.execute(statements.statements[arg.statementIndex], arg.arguments);
     }
 
     await batch.commit(noResult: true);
@@ -126,7 +132,7 @@ mixin _SqfliteExecutor on QueryDelegate {
 
   @override
   Future<void> runCustom(String statement, List args) {
-    return db.execute(statement);
+    return db.execute(statement, args);
   }
 
   @override
@@ -188,4 +194,20 @@ class FlutterQueryExecutor extends DelegatedDatabase {
             _SqfliteDelegate(true, path,
                 singleInstance: singleInstance, creator: creator),
             logStatements: logStatements);
+
+  /// The underlying sqflite [s.Database] object used by moor to send queries.
+  ///
+  /// Using the sqflite database can cause unexpected behavior in moor. For
+  /// instance, stream queries won't update for updates sent to the [s.Database]
+  /// directly.
+  /// For this reason, projects shouldn't use this getter unless they absolutely
+  /// need to. The database is exposed to make migrating from sqflite to moor
+  /// easier.
+  ///
+  /// Note that this returns null until the moor database has been opened.
+  /// A moor database is opened lazily when the first query runs.
+  s.Database get sqfliteDb {
+    final sqfliteDelegate = delegate as _SqfliteDelegate;
+    return sqfliteDelegate.db;
+  }
 }

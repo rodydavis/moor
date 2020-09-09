@@ -1,3 +1,43 @@
+## 3.3.1
+
+- Fix bug when importing a Dart table both through `tables` and `includes`
+
+## 3.3.0
+
+- New `apply_converters_on_variables` build option
+
+## 3.2.0
+
+- Support custom result class names for queries.
+- Fix minimum `analyzer: ^0.39.5` version requirement
+
+## 3.1.0
+
+- Respect foreign key constraints when calculating the stream update graph
+
+## 3.0.0
+ 
+ Generate code for moor 3.0. This most notably includes custom companions and nested result sets.
+ See moor's changelog for all the new features.
+
+## 2.4.0
+
+- Support type converters in moor files. You can import the necessary Dart file with a regular `import`
+  statement and then use `MAPPED BY ``MyTypeConverter`` ` in a column definition.
+
+## 2.3.1
+
+- CLI/IDE: Fix path resolution on Windows
+
+## 2.3.0
+
+- Support explicit type arguments for queries in moor files. In 
+  `foo(:bar AS TEXT, :baz AS INT): SELECT :bar, :baz;`, the column type can now be inferred.
+  Previously, the query would fail because of an unknown type.
+- Support `CREATE TRIGGER` and `CREATE INDEX` statements in moor files
+- Optional new type inference algorithm
+- CLI tool to analyze moor projects
+
 ## 2.2.0
 
 - Experimental new CLI tool (`pub run moor_generator`). Not useful at the moment

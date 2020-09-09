@@ -34,7 +34,11 @@ class MoorDartParser {
     return _tableParser.parseTable(classElement);
   }
 
-  Future<MoorColumn> parseColumn(
+  /// Attempts to parse the column created from the Dart getter.
+  ///
+  /// When the column is invalid, an error will be logged and `null` is
+  /// returned.
+  Future<MoorColumn /*?*/ > parseColumn(
       MethodDeclaration declaration, Element element) {
     return Future.value(_columnParser.parse(declaration, element));
   }
@@ -56,12 +60,8 @@ class MoorDartParser {
     return (method.body as ExpressionFunctionBody).expression;
   }
 
-  Future<ElementDeclarationResult> loadElementDeclaration(
-      Element element) async {
-    final resolvedLibrary = await element.library.session
-        .getResolvedLibraryByElement(element.library);
-
-    return resolvedLibrary.getElementDeclaration(element);
+  Future<ElementDeclarationResult> loadElementDeclaration(Element element) {
+    return step.task.backend.loadElementDeclaration(element);
   }
 
   String readStringLiteral(Expression expression, void Function() onError) {

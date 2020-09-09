@@ -41,6 +41,10 @@ hrefTargetBlank = false
 angledQuotes = false
 latexDashes = true
 
+[markup]
+# todo migrate to goldmark (will need configuration for backwards-compatibility https://gohugo.io/getting-started/configuration-markup/)
+defaultMarkdownHandler = "blackfriday"
+
 # Image processing configuration.
 [imaging]
 resampleFilter = "CatmullRom"
@@ -78,6 +82,10 @@ weight = 1
     name = "GitHub"
     weight = 110
     url = "https://github.com/simolus3/moor/"
+[[menu.main]]
+	name = "API docs"
+	weight = 120
+	url = "https://pub.dev/documentation/moor/latest/"
 
 # Everything below this are Site Params
 

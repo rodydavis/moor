@@ -1,9 +1,14 @@
+import 'dart:typed_data';
+
+import 'package:charcode/charcode.dart';
 import 'package:source_span/source_span.dart';
-import 'package:sqlparser/src/reader/tokenizer/token.dart';
-import 'package:sqlparser/src/reader/tokenizer/utils.dart';
+
+import 'token.dart';
+import 'utils.dart';
 
 class Scanner {
   final String source;
+  final Uint16List _charCodes;
 
   /// Whether to scan tokens that are only relevant for moor.
   final bool scanMoorTokens;
@@ -25,7 +30,8 @@ class Scanner {
   }
 
   Scanner(this.source, {this.scanMoorTokens = false})
-      : _file = SourceFile.fromString(source);
+      : _file = SourceFile.fromString(source),
+        _charCodes = Uint16List.fromList(source.codeUnits);
 
   List<Token> scanTokens() {
     while (!_isAtEnd) {
@@ -40,96 +46,103 @@ class Scanner {
       tokens[i].index = i;
     }
 
+    if (errors.isNotEmpty) {
+      throw CumulatedTokenizerException(errors);
+    }
+
     return tokens;
   }
 
   void _scanToken() {
     final char = _nextChar();
     switch (char) {
-      case '(':
+      case $lparen:
         _addToken(TokenType.leftParen);
         break;
-      case ')':
+      case $rparen:
         _addToken(TokenType.rightParen);
         break;
-      case ',':
+      case $comma:
         _addToken(TokenType.comma);
         break;
-      case '.':
+      case $dot:
         if (!_isAtEnd && isDigit(_peek())) {
           _numeric(char);
         } else {
           _addToken(TokenType.dot);
         }
         break;
-      case '+':
+      case $plus:
         _addToken(TokenType.plus);
         break;
-      case '-':
-        if (_match('-')) {
+      case $minus:
+        if (_match($minus)) {
           _lineComment();
         } else {
           _addToken(TokenType.minus);
         }
         break;
-      case '*':
-        _addToken(TokenType.star);
+      case $asterisk:
+        if (scanMoorTokens && _match($asterisk)) {
+          _addToken(TokenType.doubleStar);
+        } else {
+          _addToken(TokenType.star);
+        }
         break;
-      case '/':
-        if (_match('*')) {
+      case $slash:
+        if (_match($asterisk)) {
           _cStyleComment();
         } else {
           _addToken(TokenType.slash);
         }
-
         break;
-      case '%':
+      case $percent:
         _addToken(TokenType.percent);
         break;
-      case '&':
+      case $ampersand:
         _addToken(TokenType.ampersand);
         break;
-      case '|':
-        _addToken(_match('|') ? TokenType.doublePipe : TokenType.pipe);
+      case $pipe:
+        _addToken(_match($pipe) ? TokenType.doublePipe : TokenType.pipe);
         break;
-
-      case '<':
-        if (_match('=')) {
+      case $less_than:
+        if (_match($equal)) {
           _addToken(TokenType.lessEqual);
-        } else if (_match('<')) {
+        } else if (_match($less_than)) {
           _addToken(TokenType.shiftLeft);
-        } else if (_match('>')) {
+        } else if (_match($greater_than)) {
           _addToken(TokenType.lessMore);
         } else {
           _addToken(TokenType.less);
         }
         break;
-      case '>':
-        if (_match('=')) {
+      case $greater_than:
+        if (_match($equal)) {
           _addToken(TokenType.moreEqual);
-        } else if (_match('>')) {
+        } else if (_match($greater_than)) {
           _addToken(TokenType.shiftRight);
         } else {
           _addToken(TokenType.more);
         }
         break;
-      case '!':
-        if (_match('=')) {
+      case $exclamation:
+        if (_match($equal)) {
           _addToken(TokenType.exclamationEqual);
+        } else {
+          _unexpectedToken();
         }
         break;
-      case '=':
-        _addToken(_match('=') ? TokenType.doubleEqual : TokenType.equal);
+      case $equal:
+        _addToken(_match($equal) ? TokenType.doubleEqual : TokenType.equal);
         break;
-      case '~':
+      case $tilde:
         _addToken(TokenType.tilde);
         break;
-
-      case '?':
-        // if the next chars are numbers, this is an explicitly index variable
+      case $question:
+        // if the next chars are numbers, this is an explicitly indexed variable
         final buffer = StringBuffer();
         while (!_isAtEnd && isDigit(_peek())) {
-          buffer.write(_nextChar());
+          buffer.writeCharCode(_nextChar());
         }
 
         int explicitIndex;
@@ -139,59 +152,60 @@ class Scanner {
 
         tokens.add(QuestionMarkVariableToken(_currentSpan, explicitIndex));
         break;
-      case ':':
+      case $colon:
         final name = _matchColumnName();
         if (name == null) {
           _addToken(TokenType.colon);
         } else {
           tokens.add(ColonVariableToken(_currentSpan, ':$name'));
         }
-
         break;
-      case r'$':
+      case $dollar:
         final name = _matchColumnName();
         tokens.add(DollarSignVariableToken(_currentSpan, name));
         break;
-      case '@':
+      case $at:
         final name = _matchColumnName();
         tokens.add(AtSignVariableToken(_currentSpan, name));
         break;
-        break;
-      case ';':
+      case $semicolon:
         _addToken(TokenType.semicolon);
         break;
-
-      case 'x':
-        if (_match("'")) {
-          _string(binary: false);
+      case $x:
+      case $X:
+        if (_match($apostrophe)) {
+          _string(binary: true);
         } else {
           _identifier();
         }
         break;
-      case "'":
+      case $apostrophe:
         _string();
         break;
-      case '"':
-        _identifier(escapedInQuotes: true);
+      case $double_quote:
+        _identifier(escapeChar: $double_quote);
         break;
-      case '`':
+      case $backquote:
         if (scanMoorTokens) {
           _inlineDart();
         } else {
-          _unexpectedToken();
+          _identifier(escapeChar: $backquote);
         }
         break;
-      case ' ':
-      case '\r':
-      case '\t':
-      case '\n':
+      case $lbracket:
+        _identifier(escapeChar: $rbracket);
+        break;
+      case $space:
+      case $cr:
+      case $tab:
+      case $lf:
         // ignore whitespace
         break;
 
       default:
         if (isDigit(char)) {
           _numeric(char);
-        } else if (canStartColumnName(char)) {
+        } else if (canStartIdentifier(char)) {
           _identifier();
         } else {
           _unexpectedToken();
@@ -201,22 +215,26 @@ class Scanner {
   }
 
   void _unexpectedToken() {
-    errors.add(TokenizerError('Unexpected character.', _currentLocation));
+    errors.add(TokenizerError('Unexpected character', _currentLocation));
   }
 
-  String _nextChar() {
-    _currentOffset++;
-    return source.substring(_currentOffset - 1, _currentOffset);
+  @pragma('vm:prefer-inline')
+  int _nextChar() {
+    _advance();
+    return _charCodes[_currentOffset - 1];
   }
 
-  String _peek() {
+  @pragma('vm:prefer-inline')
+  void _advance() => _currentOffset++;
+
+  int _peek() {
     if (_isAtEnd) throw StateError('Reached end of source');
-    return source.substring(_currentOffset, _currentOffset + 1);
+    return _charCodes[_currentOffset];
   }
 
-  bool _match(String expected) {
+  bool _match(int expected) {
     if (_isAtEnd) return false;
-    if (source.substring(_currentOffset, _currentOffset + 1) != expected) {
+    if (_peek() != expected) {
       return false;
     }
     _currentOffset++;
@@ -228,43 +246,60 @@ class Scanner {
   }
 
   void _string({bool binary = false}) {
-    while (_peek() != "'" && !_isAtEnd) {
-      _nextChar();
+    var properlyClosed = false;
+
+    while (!_isAtEnd) {
+      final char = _nextChar();
+
+      // single quote could be an escape (when there are two of them) or the
+      // end of this string literal
+      if (char == $apostrophe) {
+        if (!_isAtEnd && _peek() == $apostrophe) {
+          _advance();
+          continue;
+        }
+        properlyClosed = true;
+        break;
+      }
     }
 
     // Issue an error if the string is unterminated
-    if (_isAtEnd) {
+    if (!properlyClosed) {
       errors.add(TokenizerError('Unterminated string', _currentLocation));
     }
 
-    // consume the closing "'"
-    _nextChar();
-
-    final value = source.substring(_startOffset + 1, _currentOffset - 1);
+    final value = source
+        .substring(_startOffset + 1, _currentOffset - 1)
+        .replaceAll("''", "'");
     tokens.add(StringLiteralToken(value, _currentSpan, binary: binary));
   }
 
-  void _numeric(String firstChar) {
+  void _numeric(int firstChar) {
     // https://www.sqlite.org/syntax/numeric-literal.html
 
     // We basically have three cases: hexadecimal numbers (starting with 0x),
     // numbers starting with a decimal dot and numbers starting with a digit.
-    if (firstChar == '0') {
-      if (!_isAtEnd && (_peek() == 'x' || _peek() == 'X')) {
+    if (firstChar == $0) {
+      if (!_isAtEnd && (_peek() == $x || _peek() == $X)) {
         _nextChar(); // consume the x
+        final hexDigitsBuffer = StringBuffer();
         // advance hexadecimal digits
         while (!_isAtEnd && isHexDigit(_peek())) {
-          _nextChar();
+          hexDigitsBuffer.writeCharCode(_nextChar());
         }
-        _addToken(TokenType.numberLiteral);
+        tokens.add(
+            NumericToken(_currentSpan, hexDigits: hexDigitsBuffer.toString()));
         return;
       }
     }
 
-    void consumeDigits() {
+    String consumeDigits() {
+      final buffer = StringBuffer();
       while (!_isAtEnd && isDigit(_peek())) {
-        _nextChar();
+        buffer.writeCharCode(_nextChar());
       }
+
+      return buffer.toString();
     }
 
     /// Returns true without advancing if the next char is a digit. Returns
@@ -277,11 +312,16 @@ class Scanner {
       return !noDigit;
     }
 
+    String beforeDecimal;
+    String afterDecimal;
+    var hasDecimal = false;
+
     // ok, we're not dealing with a hexadecimal number.
-    if (firstChar == '.') {
+    if (firstChar == $dot) {
       // started with a decimal point. the next char has to be numeric
+      hasDecimal = true;
       if (_requireDigit('Expected a digit after the decimal dot')) {
-        consumeDigits();
+        afterDecimal = consumeDigits();
       }
     } else {
       // ok, not starting with a decimal dot. In that case, the first char must
@@ -290,24 +330,25 @@ class Scanner {
         errors.add(TokenizerError('Expected a digit', _currentLocation));
         return;
       }
-      consumeDigits();
+      beforeDecimal = String.fromCharCode(firstChar) + consumeDigits();
 
       // optional decimal part
-      if (!_isAtEnd && _peek() == '.') {
+      if (!_isAtEnd && _peek() == $dot) {
         _nextChar();
-        // if there is a decimal separator, there must be at least one digit
-        // after it
-        if (_requireDigit('Expected a digit after the decimal dot')) {
-          consumeDigits();
-        } else {
-          return;
+        hasDecimal = true;
+
+        final digits = consumeDigits();
+        if (digits.isNotEmpty) {
+          afterDecimal = digits;
         }
       }
     }
 
+    int parsedExponent;
+
     // ok, we've read the first part of the number. But there's more! If it's
     // not a hexadecimal number, it could be in scientific notation.
-    if (!_isAtEnd && (_peek() == 'e' || _peek() == 'E')) {
+    if (!_isAtEnd && (_peek() == $e || _peek() == $E)) {
       _nextChar(); // consume e or E
 
       if (_isAtEnd) {
@@ -320,29 +361,33 @@ class Scanner {
 
       final char = _nextChar();
       if (isDigit(char)) {
-        consumeDigits();
-        _addToken(TokenType.numberLiteral);
-        return;
+        final exponent = String.fromCharCode(char) + consumeDigits();
+        parsedExponent = int.parse(exponent);
       } else {
-        if (char == '+' || char == '-') {
+        if (char == $plus || char == $minus) {
           _requireDigit('Expected digits for the exponent');
-          consumeDigits();
-          _addToken(TokenType.numberLiteral);
+          final exponent = consumeDigits();
+
+          parsedExponent =
+              char == $plus ? int.parse(exponent) : -int.parse(exponent);
         } else {
           errors
               .add(TokenizerError('Expected plus or minus', _currentLocation));
         }
       }
-    } else {
-      // ok, no scientific notation
-      _addToken(TokenType.numberLiteral);
     }
+
+    tokens.add(NumericToken(_currentSpan,
+        digitsBeforeDecimal: beforeDecimal,
+        digitsAfterDecimal: afterDecimal,
+        hasDecimalPoint: hasDecimal,
+        exponent: parsedExponent));
   }
 
-  void _identifier({bool escapedInQuotes = false}) {
-    if (escapedInQuotes) {
+  void _identifier({int escapeChar}) {
+    if (escapeChar != null) {
       // find the closing quote
-      while (_peek() != '"' && !_isAtEnd) {
+      while (!_isAtEnd && _peek() != escapeChar) {
         _nextChar();
       }
       // Issue an error if the column name is unterminated
@@ -350,12 +395,12 @@ class Scanner {
         errors
             .add(TokenizerError('Unterminated column name', _currentLocation));
       } else {
-        // consume the closing double quote
+        // consume the closing char
         _nextChar();
         tokens.add(IdentifierToken(true, _currentSpan));
       }
     } else {
-      while (!_isAtEnd && continuesColumnName(_peek())) {
+      while (!_isAtEnd && continuesIdentifier(_peek())) {
         _nextChar();
       }
 
@@ -372,11 +417,11 @@ class Scanner {
   }
 
   String _matchColumnName() {
-    if (_isAtEnd || !canStartColumnName(_peek())) return null;
+    if (_isAtEnd || !canStartIdentifier(_peek())) return null;
 
-    final buffer = StringBuffer()..write(_nextChar());
-    while (!_isAtEnd && continuesColumnName(_peek())) {
-      buffer.write(_nextChar());
+    final buffer = StringBuffer()..writeCharCode(_nextChar());
+    while (!_isAtEnd && continuesIdentifier(_peek())) {
+      buffer.writeCharCode(_nextChar());
     }
 
     return buffer.toString();
@@ -385,7 +430,7 @@ class Scanner {
   void _inlineDart() {
     // inline starts with a `, we just need to find the matching ` that
     // terminates this token.
-    while (_peek() != '`' && !_isAtEnd) {
+    while (_peek() != $backquote && !_isAtEnd) {
       _nextChar();
     }
 
@@ -402,8 +447,8 @@ class Scanner {
   /// Scans a line comment after the -- has already been read.
   void _lineComment() {
     final contentBuilder = StringBuffer();
-    while (!_isAtEnd && _peek() != '\n') {
-      contentBuilder.write(_nextChar());
+    while (!_isAtEnd && _peek() != $lf) {
+      contentBuilder.writeCharCode(_nextChar());
     }
 
     tokens.add(CommentToken(
@@ -416,15 +461,15 @@ class Scanner {
   void _cStyleComment() {
     final contentBuilder = StringBuffer();
     while (!_isAtEnd) {
-      if (_match('*')) {
-        if (!_isAtEnd && _match('/')) {
+      if (_match($asterisk)) {
+        if (!_isAtEnd && _match($slash)) {
           break;
         } else {
           // write the * we otherwise forgot to write
-          contentBuilder.write('*');
+          contentBuilder.writeCharCode($asterisk);
         }
       } else {
-        contentBuilder.write(_nextChar());
+        contentBuilder.writeCharCode(_nextChar());
       }
     }
 

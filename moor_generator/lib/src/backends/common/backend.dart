@@ -1,5 +1,7 @@
-import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/element/element.dart';
+import 'package:analyzer/dart/element/type.dart';
+// ignore: implementation_imports
+import 'package:analyzer/src/dart/element/type.dart' show DynamicTypeImpl;
 import 'package:logging/logging.dart';
 import 'package:moor_generator/src/backends/backend.dart';
 
@@ -12,7 +14,10 @@ class CommonBackend extends Backend {
 
   @override
   Uri resolve(Uri base, String import) {
-    return Uri.parse(driver.absolutePath(Uri.parse(import), base: base));
+    final absolute = driver.absolutePath(Uri.parse(import), base: base);
+    if (absolute == null) return null;
+
+    return Uri.file(absolute);
   }
 }
 
@@ -25,11 +30,6 @@ class CommonTask extends BackendTask {
 
   @override
   final Logger log = Logger.root;
-
-  @override
-  Future<CompilationUnit> parseSource(String dart) async {
-    return null;
-  }
 
   @override
   Future<String> readMoor(Uri uri) async {
@@ -45,6 +45,12 @@ class CommonTask extends BackendTask {
     }
 
     return await driver.resolveDart(path);
+  }
+
+  @override
+  Future<DartType> resolveTypeOf(Uri context, String dartExpression) async {
+    // todo: Override so that we don't throw. We should support this properly.
+    return DynamicTypeImpl.instance;
   }
 
   @override

@@ -1,5 +1,6 @@
 @Tags(['integration'])
-import 'package:moor_ffi/moor_ffi.dart';
+@TestOn('vm')
+import 'package:moor/ffi.dart';
 import 'package:test/test.dart';
 
 import '../data/tables/custom_tables.dart';

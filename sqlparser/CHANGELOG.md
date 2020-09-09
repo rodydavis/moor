@@ -1,3 +1,64 @@
+## 0.10.1
+
+- Scan identifiers with `[bracket syntax]`
+- `NumericToken` now contains individual lexemes making up the number
+- Improve error messages in some scenarios
+- Fix type inference for binary expressions where the operands have incompatible types
+- Improve type inference around `NULL` 
+
+## 0.10.0
+
+- Breaking: Made `RecursiveVisitor.visit`, `visitList` and `visitExcept` an extension on `AstVisitor`.
+- Support the transformer pattern to modify ast nodes
+- Breaking: `FrameBoundary`, `DeleteTarget`, `UpdateTarget`, `DefaultValues` and `InsertTarget` are no longer constant
+- Breaking: Removed `visitQueryable`. Use `defaultQueryable` instead.
+- Support parsing and analyzing `CREATE VIEW` statements (see `SchemaFromCreateTable.readView`).
+  Thanks to [@mqus](https://github.com/mqus) for their contribution!
+- `SqlEngine.parse` will no longer throw when there's a parsing error (use `ParseResult.errors` instead).
+- Parse `DEFERRABLE` clauses on foreign key constraints
+- Parse `NULLS FIRST` and `NULLS LAST` on `ORDER BY` terms
+
+## 0.9.0
+
+- New `package:sqlparser/utils/find_referenced_tables.dart` library. Use it to easily find all referenced tables
+in a query.
+- Support [row values](https://www.sqlite.org/rowvalue.html) including warnings about misuse
+
+## 0.8.1
+
+- Support collate expressions in the new type inference ([#533](htt
+ps://github.com/simolus3/moor/issues/533))
+- Added `visitCollateExpression` to the visitor classes
+
+## 0.8.0
+
+- Remove `SqlEngine.withOptions` constructor - the default constructor now takes options
+- Changed `SelectStatement.from` from `List<Queryable>` to `Queryable?`. Selecting from multiple
+  tables with a comma will now be parsed as a `JoinClause`.
+- Changed `SelectStatementAsSource.statement` from `SelectStatement` to `BaseSelectStatement` and allow
+  compound select statements to appear in a `FROM` clause
+- Support the `VALUES` clause as select statement
+- The new type inference engine is now enabled by default and the `enableExperimentalTypeInference` option
+  has been removed. To continue using the old engine, the `useLegacyTypeInference` flag can be used.
+
+## 0.7.0
+
+- New feature: Table valued functions.
+- __Breaking__: Removed the `enableJson1` parameter on `EngineOptions`. Add a `Json1Extension` instance
+  to `enabledExtensions` instead.
+- Parse `rowid` as a valid reference when needed (`SELECT rowid FROM tbl` is now parsed correctly)
+- Parse `CURRENT_TIME`, `CURRENT_DATE` and `CURRENT_TIMESTAMP`
+- Parse `UPSERT` clauses for insert statements
+
+## 0.6.0
+
+- __Breaking:__ Added an argument type and argument to the visitor classes
+- Experimental new type inference algorithm 
+(`SqlEngine.withOptions(EngineOptions(enableExperimentalTypeInference: true))`)
+- Support `CAST` expressions and the `ISNULL` / `NOTNULL` postfixes
+- Support parsing `CREATE TRIGGER` statements
+- Support parsing `CREATE INDEX` statements
+
 ## 0.5.0
 - Optionally support the `json1` module
 - Optionally support the `fts5` module
@@ -14,7 +75,6 @@
 - some features that are specific to moor
 
 __0.3.0+1__: Accept `\r` characters as whitespace
-
 
 ## 0.2.0
 - Parse `CREATE TABLE` statements

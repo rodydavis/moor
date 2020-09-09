@@ -5,17 +5,19 @@ import 'package:collection/collection.dart';
 import 'package:meta/meta.dart';
 // hidden because of https://github.com/dart-lang/sdk/issues/39262
 import 'package:moor/moor.dart'
-    hide BooleanExpressionOperators, DateTimeExpressions;
+    hide BooleanExpressionOperators, DateTimeExpressions, TableInfoUtils;
 import 'package:moor/sqlite_keywords.dart';
 import 'package:moor/src/runtime/executor/stream_queries.dart';
 import 'package:moor/src/runtime/types/sql_types.dart';
 import 'package:moor/src/utils/single_transformer.dart';
 
+part 'components/group_by.dart';
 part 'components/join.dart';
 part 'components/limit.dart';
 part 'components/order_by.dart';
 part 'components/where.dart';
 
+part 'expressions/aggregate.dart';
 part 'expressions/algebra.dart';
 part 'expressions/bools.dart';
 part 'expressions/comparable.dart';
@@ -28,6 +30,7 @@ part 'expressions/text.dart';
 part 'expressions/variables.dart';
 
 part 'schema/columns.dart';
+part 'schema/entities.dart';
 part 'schema/table_info.dart';
 
 part 'statements/select/custom_select.dart';
@@ -49,6 +52,19 @@ abstract class Component {
   /// introduced. When a component consists of multiple composed component, it's
   /// responsible for introducing whitespace between its child components.
   void writeInto(GenerationContext context);
+}
+
+/// Writes all [components] into the [context], separated by commas.
+void _writeCommaSeparated(
+    GenerationContext context, Iterable<Component> components) {
+  var first = true;
+  for (final element in components) {
+    if (!first) {
+      context.buffer.write(', ');
+    }
+    element.writeInto(context);
+    first = false;
+  }
 }
 
 /// An enumeration of database systems supported by moor. Only

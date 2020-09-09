@@ -4,7 +4,7 @@ import 'dart:isolate';
 
 import 'package:moor/isolate.dart';
 import 'package:moor/moor.dart';
-import 'package:moor_ffi/moor_ffi.dart';
+import 'package:moor/ffi.dart';
 import 'package:test/test.dart';
 
 import 'data/tables/todos.dart';
@@ -59,6 +59,25 @@ void main() {
     await expectation;
     await moorIsolate.shutdownAll();
   });
+
+  test('errors propagate across isolates', () async {
+    final isolate = await MoorIsolate.spawn(_backgroundConnection);
+    final db = TodoDb.connect(await isolate.connect());
+
+    await expectLater(
+      () => db.customStatement('UPDATE non_existing_table SET foo = bar'),
+      throwsA(anything),
+    );
+
+    // Check that isolate is still usable
+    await expectLater(
+      db.customSelect('SELECT 1').get(),
+      completion(isNotEmpty),
+    );
+
+    await db.close();
+    await isolate.shutdownAll();
+  });
 }
 
 void _runTests(
@@ -88,6 +107,21 @@ void _runTests(
     expect(result, isEmpty);
   });
 
+  test('can run beforeOpen', () async {
+    var beforeOpenCalled = false;
+
+    final database = TodoDb.connect(isolateConnection);
+    database.migration = MigrationStrategy(beforeOpen: (details) async {
+      await database.customStatement('PRAGMA foreign_keys = ON');
+      beforeOpenCalled = true;
+    });
+
+    // run a select statement to verify that the database is open
+    await database.customSelect('SELECT 1').get();
+    await database.close();
+    expect(beforeOpenCalled, isTrue);
+  });
+
   test('stream queries work as expected', () async {
     final database = TodoDb.connect(isolateConnection);
     final initialCompanion = TodosTableCompanion.insert(content: 'my content');
@@ -112,6 +146,110 @@ void _runTests(
 
     final result = await database.select(database.todosTable).get();
     expect(result, isNotEmpty);
+  });
+
+  test('supports no-op transactions', () async {
+    final database = TodoDb.connect(isolateConnection);
+    await database.transaction(() {
+      return Future.value(null);
+    });
+    await database.close();
+  });
+
+  test('supports transactions in migrations', () async {
+    final database = TodoDb.connect(isolateConnection);
+    database.migration = MigrationStrategy(beforeOpen: (details) async {
+      await database.transaction(() async {
+        return await database.customSelect('SELECT 1').get();
+      });
+    });
+
+    await database.customSelect('SELECT 2').get();
+
+    await database.close();
+  });
+
+  test('transactions have an isolated view on data', () async {
+    // regression test for https://github.com/simolus3/moor/issues/324
+    final db = TodoDb.connect(isolateConnection);
+
+    await db
+        .customStatement('create table tbl (id integer primary key not null)');
+
+    Future<void> expectRowCount(TodoDb db, int count) async {
+      final rows = await db.customSelect('select * from tbl').get();
+      expect(rows, hasLength(count));
+    }
+
+    final rowInserted = Completer<void>();
+    final runTransaction = db.transaction(() async {
+      await db.customInsert('insert into tbl default values');
+      await expectRowCount(db, 1);
+      rowInserted.complete();
+      // Hold transaction open for expectRowCount() outside the transaction to
+      // finish
+      await Future.delayed(const Duration(seconds: 1));
+      await db.customStatement('delete from tbl');
+      await expectRowCount(db, 0);
+    });
+
+    await rowInserted.future;
+    await expectRowCount(db, 0);
+    await runTransaction; // wait for the transaction to complete
+
+    await db.close();
+  });
+
+  test("can't run queries on a closed database", () async {
+    final db = TodoDb.connect(isolateConnection);
+    await db.customSelect('SELECT 1;').getSingle();
+
+    await db.close();
+
+    await expectLater(
+        () => db.customSelect('SELECT 1;').getSingle(), throwsStateError);
+  });
+
+  test('can run deletes, updates and batches', () async {
+    final db = TodoDb.connect(isolateConnection);
+
+    await db.into(db.users).insert(
+        UsersCompanion.insert(name: 'simon.', profilePicture: Uint8List(0)));
+
+    await db
+        .update(db.users)
+        .write(const UsersCompanion(name: Value('changed name')));
+    var result = await db.select(db.users).getSingle();
+    expect(result.name, 'changed name');
+
+    await db.delete(db.users).go();
+
+    await db.batch((batch) {
+      batch.insert(
+        db.users,
+        UsersCompanion.insert(name: 'not simon', profilePicture: Uint8List(0)),
+      );
+    });
+
+    result = await db.select(db.users).getSingle();
+    expect(result.name, 'not simon');
+
+    await db.close();
+  });
+
+  test('transactions can be rolled back', () async {
+    final db = TodoDb.connect(isolateConnection);
+
+    await expectLater(db.transaction(() async {
+      await db.into(db.categories).insert(
+          CategoriesCompanion.insert(description: 'my fancy description'));
+      throw Exception('expected');
+    }), throwsException);
+
+    final result = await db.select(db.categories).get();
+    expect(result, isEmpty);
+
+    await db.close();
   });
 }
 

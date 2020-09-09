@@ -13,14 +13,13 @@ how to get started. You can watch it [here](https://youtu.be/zpWsedYMczM).
 
 ## Adding the dependency
 First, lets add moor to your project's `pubspec.yaml`.
-At the moment, the current version of `moor` is [![Moor version](https://img.shields.io/pub/v/moor.svg)](https://pub.dartlang.org/packages/moor),
-`moor_ffi` is at [![Moor version](https://img.shields.io/pub/v/moor_ffi.svg)](https://pub.dartlang.org/packages/moor_ffi)
+At the moment, the current version of `moor` is [![Moor version](https://img.shields.io/pub/v/moor.svg)](https://pub.dartlang.org/packages/moor)
 and the latest version of `moor_generator` is [![Generator version](https://img.shields.io/pub/v/moor_generator.svg)](https://pub.dartlang.org/packages/moor_generator)
 
 ```yaml
 dependencies:
   moor: # use the latest version
-  moor_ffi: # use the latest version
+  sqlite3_flutter_libs: # Also use the latest version.
   path_provider:
   path:
 
@@ -32,7 +31,7 @@ dev_dependencies:
 If you're wondering why so many packages are necessary, here's a quick overview over what each package does:
 
 - `moor`: This is the core package defining most apis
-- `moor_ffi`: Contains code that will run the actual queries
+- `sqlite3_flutter_libs`: Ships the latest `sqlite3` version with your Android or iOS app.
 - `path_provider` and `path`: Used to find a suitable location to store the database. Maintained by the Flutter and Dart team
 - `moor_generator`: Generates query code based on your tables
 - `build_runner`: Common tool for code-generation, maintained by the Dart team
@@ -83,15 +82,17 @@ examples. Otherwise, the generator won't be able to know what's going on.
 ## Generating the code
 Moor integrates with Dart's `build` system, so you can generate all the code needed with 
 `flutter packages pub run build_runner build`. If you want to continuously rebuild the generated code
-whever you change your code, run `flutter packages pub run build_runner watch` instead.
+where you change your code, run `flutter packages pub run build_runner watch` instead.
 After running either command once, the moor generator will have created a class for your
 database and data classes for your entities. To use it, change the `MyDatabase` class as
 follows:
 ```dart
 // These imports are only needed to open the database
-import 'package:moor_ffi/moor_ffi.dart';
+import 'package:moor/ffi.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:moor/moor.dart';
+import 'dart:io';
 
 LazyDatabase _openConnection() {
   // the LazyDatabase util lets us find the right location for the file async.

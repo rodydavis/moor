@@ -21,8 +21,11 @@ class MoorOptions {
   @JsonKey(name: 'write_from_json_string_constructor', defaultValue: false)
   final bool generateFromJsonStringConstructor;
 
-  /// Overrides [Object.hashCode] and [Object.==] in classes generated for
-  /// custom queries.
+  /// Overrides [Object.hashCode], [Object.==] and [Object.toString] in classes
+  /// generated for custom queries.
+  ///
+  /// The `toString` override was added in a later version, we kept the original
+  /// name for backwards compatibility.
   @JsonKey(name: 'override_hash_and_equals_in_result_sets', defaultValue: false)
   final bool overrideHashAndEqualsInResultSets;
 
@@ -30,7 +33,7 @@ class MoorOptions {
   /// in a `UseMoor` annotation. Compact queries return a `Selectable` instead
   /// of generating two methods (with one returning a stream and another
   /// returning a future)
-  @JsonKey(name: 'compact_query_methods', defaultValue: false)
+  @JsonKey(name: 'compact_query_methods', defaultValue: true)
   final bool compactQueryMethods;
 
   /// Remove verification logic in the generated code.
@@ -46,7 +49,7 @@ class MoorOptions {
   /// the transformed `camelCaseDartGetter`.
   @JsonKey(
       name: 'use_column_name_as_json_key_when_defined_in_moor_file',
-      defaultValue: false)
+      defaultValue: true)
   final bool useColumnNameAsJsonKeyWhenDefinedInMoorFile;
 
   /// Generate a `connect` constructor in database superclasses. This is
@@ -54,24 +57,56 @@ class MoorOptions {
   @JsonKey(name: 'generate_connect_constructor', defaultValue: false)
   final bool generateConnectConstructor;
 
+  /// Whether the old, legacy type inference engine should be used when
+  /// analyzing custom sql queries.
+  @JsonKey(name: 'legacy_type_inference', defaultValue: false)
+  final bool legacyTypeInference;
+
   @JsonKey(name: 'sqlite_modules', defaultValue: [])
   final List<SqlModule> modules;
+
+  @JsonKey(name: 'eagerly_load_dart_ast', defaultValue: false)
+  final bool eagerlyLoadDartAst;
+
+  @JsonKey(name: 'data_class_to_companions', defaultValue: true)
+  final bool dataClassToCompanions;
+
+  @JsonKey(name: 'mutable_classes', defaultValue: false)
+  final bool generateMutableClasses;
+
+  /// Whether generated query classes should inherit from the `CustomResultSet`
+  /// and expose their underlying raw `row`.
+  @JsonKey(name: 'raw_result_set_data', defaultValue: false)
+  final bool rawResultSetData;
+
+  @JsonKey(name: 'apply_converters_on_variables', defaultValue: false)
+  final bool applyConvertersOnVariables;
+
+  const MoorOptions({
+    this.generateFromJsonStringConstructor = false,
+    this.overrideHashAndEqualsInResultSets = false,
+    this.compactQueryMethods = false,
+    this.skipVerificationCode = false,
+    this.useDataClassNameForCompanions = false,
+    this.useColumnNameAsJsonKeyWhenDefinedInMoorFile = false,
+    this.generateConnectConstructor = false,
+    this.legacyTypeInference = false,
+    this.eagerlyLoadDartAst = false,
+    this.dataClassToCompanions = true,
+    this.generateMutableClasses = false,
+    this.rawResultSetData = false,
+    this.applyConvertersOnVariables = false,
+    this.modules = const [],
+  });
+
+  factory MoorOptions.fromJson(Map<String, dynamic> json) =>
+      _$MoorOptionsFromJson(json);
 
   /// Whether the [module] has been enabled in this configuration.
   bool hasModule(SqlModule module) => modules.contains(module);
 
-  const MoorOptions(
-      {this.generateFromJsonStringConstructor = false,
-      this.overrideHashAndEqualsInResultSets = false,
-      this.compactQueryMethods = false,
-      this.skipVerificationCode = false,
-      this.useDataClassNameForCompanions = false,
-      this.useColumnNameAsJsonKeyWhenDefinedInMoorFile = false,
-      this.generateConnectConstructor = false,
-      this.modules = const []});
-
-  factory MoorOptions.fromJson(Map<String, dynamic> json) =>
-      _$MoorOptionsFromJson(json);
+  /// Checks whether a deprecated option is enabled.
+  bool get enabledDeprecatedOption => eagerlyLoadDartAst;
 }
 
 /// Set of sqlite modules that require special knowledge from the generator.
@@ -83,4 +118,9 @@ enum SqlModule {
   /// Enables support for the fts5 module and its functions when parsing sql
   /// queries.
   fts5,
+
+  /// Enables support for mathematical functions only available in `moor_ffi`.
+  // note: We're ignoring the warning because we can't change the json key
+  // ignore: constant_identifier_names
+  moor_ffi,
 }

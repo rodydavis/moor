@@ -34,23 +34,31 @@ class _VmDelegate extends DatabaseDelegate {
   Future<bool> get isOpen => Future.value(_db != null);
 
   @override
-  Future<void> open([GeneratedDatabase db]) async {
+  Future<void> open(QueryExecutorUser user) async {
     if (file != null) {
       _db = Database.openFile(file);
     } else {
       _db = Database.memory();
     }
+    _db.enableMoorFfiFunctions();
     versionDelegate = _VmVersionDelegate(_db);
     return Future.value();
   }
 
   @override
-  Future<void> runBatched(List<BatchedStatement> statements) async {
-    for (final stmt in statements) {
-      final prepared = _db.prepare(stmt.sql);
-      stmt.variables.forEach(prepared.execute);
+  Future<void> runBatched(BatchedStatements statements) async {
+    final prepared = [
+      for (final stmt in statements.statements) _db.prepare(stmt),
+    ];
 
-      prepared.close();
+    for (final application in statements.arguments) {
+      final stmt = prepared[application.statementIndex];
+
+      stmt.execute(application.arguments);
+    }
+
+    for (final stmt in prepared) {
+      stmt.close();
     }
 
     return Future.value();
@@ -90,6 +98,11 @@ class _VmDelegate extends DatabaseDelegate {
     stmt.close();
 
     return Future.value(QueryResult(result.columnNames, result.rows));
+  }
+
+  @override
+  Future<void> close() async {
+    _db.close();
   }
 }
 

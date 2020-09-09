@@ -2,7 +2,7 @@
 import 'package:moor_generator/src/analyzer/runner/results.dart';
 import 'package:test/test.dart';
 
-import 'utils.dart';
+import '../utils.dart';
 
 void main() {
   test('supports inheritance for daos', () async {
@@ -48,8 +48,8 @@ class ProductsDao extends BaseProductsDao with _$ProductDaoMixin {
     expect(file.errors.errors, isEmpty);
 
     final dao = (file.currentResult as ParsedDartFile).declaredDaos.single;
-    expect(dao.dbClass.name, 'MyDatabase');
+    expect(dao.dbClass.getDisplayString(), 'MyDatabase');
 
-    state.backend.finish();
+    state.close();
   });
 }

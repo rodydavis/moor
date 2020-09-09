@@ -9,12 +9,17 @@ class NumberedVariable extends Expression with Variable {
   final QuestionMarkVariableToken token;
   int get explicitIndex => token.explicitIndex;
 
-  NumberedVariable(this.token);
+  NumberedVariable(this.token) {
+    resolvedIndex = explicitIndex;
+  }
 
   @override
-  T accept<T>(AstVisitor<T> visitor) {
-    return visitor.visitNumberedVariable(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitNumberedVariable(this, arg);
   }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {}
 
   @override
   Iterable<AstNode> get childNodes => const [];
@@ -32,9 +37,12 @@ class ColonNamedVariable extends Expression with Variable {
   ColonNamedVariable(this.token);
 
   @override
-  T accept<T>(AstVisitor<T> visitor) {
-    return visitor.visitNamedVariable(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitNamedVariable(this, arg);
   }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {}
 
   @override
   Iterable<AstNode> get childNodes => [];

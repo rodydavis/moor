@@ -11,12 +11,17 @@ Map<Type, int> _openedDbCount = {};
 
 /// A base class for all generated databases.
 abstract class GeneratedDatabase extends DatabaseConnectionUser
-    with QueryEngine {
+    with QueryEngine
+    implements QueryExecutorUser {
   @override
-  final bool topLevel = true;
+  bool get topLevel => true;
+
+  @override
+  GeneratedDatabase get attachedDatabase => this;
 
   /// Specify the schema version of your database. Whenever you change or add
   /// tables, you should bump this field and provide a [migration] strategy.
+  @override
   int get schemaVersion;
 
   /// Defines the migration strategy that will determine how to deal with an
@@ -28,8 +33,22 @@ abstract class GeneratedDatabase extends DatabaseConnectionUser
   MigrationStrategy _cachedMigration;
   MigrationStrategy get _resolvedMigration => _cachedMigration ??= migration;
 
+  /// The collection of update rules contains information on how updates on
+  /// tables result in other updates, for instance due to a trigger.
+  ///
+  /// There should be no need to overwrite this field, moor will generate an
+  /// appropriate implementation automatically.
+  StreamQueryUpdateRules get streamUpdateRules =>
+      const StreamQueryUpdateRules.none();
+
   /// A list of tables specified in this database.
-  List<TableInfo> get allTables;
+  Iterable<TableInfo> get allTables;
+
+  /// A list of all [DatabaseSchemaEntity] that are specified in this database.
+  ///
+  /// This contains [allTables], but also advanced entities like triggers.
+  // return allTables for backwards compatibility
+  Iterable<DatabaseSchemaEntity> get allSchemaEntities => allTables;
 
   /// A [Type] can't be sent across isolates. Instances of this class shouldn't
   /// be sent over isolates either, so let's keep a reference to a [Type] that
@@ -41,14 +60,12 @@ abstract class GeneratedDatabase extends DatabaseConnectionUser
   GeneratedDatabase(SqlTypeSystem types, QueryExecutor executor,
       {StreamQueryStore streamStore})
       : super(types, executor, streamQueries: streamStore) {
-    executor?.databaseInfo = this;
     assert(_handleInstantiated());
   }
 
   /// Used by generated code to connect to a database that is already open.
   GeneratedDatabase.connect(DatabaseConnection connection)
       : super.fromConnection(connection) {
-    connection?.executor?.databaseInfo = this;
     assert(_handleInstantiated());
   }
 
@@ -81,54 +98,42 @@ abstract class GeneratedDatabase extends DatabaseConnectionUser
   /// Creates a [Migrator] with the provided query executor. Migrators generate
   /// sql statements to create or drop tables.
   ///
-  /// This api is mainly used internally in moor, for instance in
-  /// [handleDatabaseCreation] and [handleDatabaseVersionChange]. However, it
-  /// can also be used if you need to create tables manually and outside of a
-  /// [MigrationStrategy]. For almost all use cases, overriding [migration]
-  /// should suffice.
+  /// This api is mainly used internally in moor, especially to implement the
+  /// [beforeOpen] callback from the database site.
+  /// However, it can also be used if you need to create tables manually and
+  /// outside of a [MigrationStrategy]. For almost all use cases, overriding
+  /// [migration] should suffice.
   @protected
-  Migrator createMigrator([SqlExecutor executor]) {
-    final actualExecutor = executor ?? customStatement;
-    return Migrator(this, actualExecutor);
-  }
+  @visibleForTesting
+  Migrator createMigrator() => Migrator(this);
 
-  /// Handles database creation by delegating the work to the [migration]
-  /// strategy. This method should not be called by users.
-  Future<void> handleDatabaseCreation({@required SqlExecutor executor}) {
-    final migrator = createMigrator(executor);
-    return _resolvedMigration.onCreate(migrator);
-  }
+  @override
+  @nonVirtual
+  Future<void> beforeOpen(QueryExecutor executor, OpeningDetails details) {
+    return _runEngineZoned(BeforeOpenRunner(this, executor), () async {
+      if (details.wasCreated) {
+        final migrator = createMigrator();
+        await _resolvedMigration.onCreate(migrator);
+      } else if (details.hadUpgrade) {
+        final migrator = createMigrator();
+        await _resolvedMigration.onUpgrade(
+            migrator, details.versionBefore, details.versionNow);
+      }
 
-  /// Handles database updates by delegating the work to the [migration]
-  /// strategy. This method should not be called by users.
-  Future<void> handleDatabaseVersionChange(
-      {@required SqlExecutor executor, int from, int to}) {
-    final migrator = createMigrator(executor);
-    return _resolvedMigration.onUpgrade(migrator, from, to);
-  }
-
-  /// Handles the before opening callback as set in the [migration]. This method
-  /// is used internally by database implementations and should not be called by
-  /// users.
-  Future<void> beforeOpenCallback(
-      QueryExecutor executor, OpeningDetails details) {
-    final migration = _resolvedMigration;
-
-    if (migration.beforeOpen != null) {
-      return _runEngineZoned(
-        BeforeOpenRunner(this, executor),
-        () => migration.beforeOpen(details),
-      );
-    }
-    return Future.value();
+      await _resolvedMigration.beforeOpen?.call(details);
+    });
   }
 
   /// Closes this database and releases associated resources.
   Future<void> close() async {
+    await streamQueries.close();
     await executor.close();
 
-    if (_openedDbCount[runtimeType] != null) {
-      _openedDbCount[runtimeType]--;
-    }
+    assert(() {
+      if (_openedDbCount[runtimeType] != null) {
+        _openedDbCount[runtimeType]--;
+      }
+      return true;
+    }());
   }
 }

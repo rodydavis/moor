@@ -26,6 +26,8 @@ abstract class Query<T extends Table, D extends DataClass> {
   @protected
   Limit limitExpr;
 
+  GroupBy _groupBy;
+
   /// Subclasses must override this and write the part of the statement that
   /// comes before the where and limit expression..
   @visibleForOverriding
@@ -38,31 +40,25 @@ abstract class Query<T extends Table, D extends DataClass> {
   /// [moor-docs]: https://moor.simonbinder.eu/docs/getting-started/writing_queries/
   GenerationContext constructQuery() {
     final ctx = GenerationContext.fromDb(database);
+
+    // whether we need to insert a space before writing the next component
     var needsWhitespace = false;
+
+    void writeWithSpace(Component /*?*/ component) {
+      if (component == null) return;
+
+      if (needsWhitespace) ctx.writeWhitespace();
+      component.writeInto(ctx);
+      needsWhitespace = true;
+    }
 
     writeStartPart(ctx);
     needsWhitespace = true;
 
-    if (whereExpr != null) {
-      if (needsWhitespace) ctx.writeWhitespace();
-
-      whereExpr.writeInto(ctx);
-      needsWhitespace = true;
-    }
-
-    if (orderByExpr != null) {
-      if (needsWhitespace) ctx.writeWhitespace();
-
-      orderByExpr.writeInto(ctx);
-      needsWhitespace = true;
-    }
-
-    if (limitExpr != null) {
-      if (needsWhitespace) ctx.writeWhitespace();
-
-      limitExpr.writeInto(ctx);
-      needsWhitespace = true;
-    }
+    writeWithSpace(whereExpr);
+    writeWithSpace(_groupBy);
+    writeWithSpace(orderByExpr);
+    writeWithSpace(limitExpr);
 
     ctx.buffer.write(';');
 
@@ -179,7 +175,7 @@ mixin SingleTableQueryMixin<T extends Table, D extends DataClass>
   ///    which explains how to express most SQL expressions in Dart.
   /// If you want to remove duplicate rows from a query, use the `distinct`
   /// parameter on [QueryEngine.select].
-  void where(Expression<bool, BoolType> Function(T tbl) filter) {
+  void where(Expression<bool> Function(T tbl) filter) {
     final predicate = filter(table.asDslTable);
 
     if (whereExpr == null) {
@@ -209,8 +205,8 @@ mixin SingleTableQueryMixin<T extends Table, D extends DataClass>
       return MapEntry(column.$name, column);
     }));
 
-    final updatedFields = table.entityToSql(d.createCompanion(false));
-    // Construct a map of [GeneratedColumn] to [Variable] where each column is
+    final updatedFields = d.toColumns(false);
+    // Construct a map of [GeneratedColumn] to [Expression] where each column is
     // a primary key and the associated value was extracted from d.
     final primaryKeyValues = Map.fromEntries(updatedFields.entries
             .where((entry) => primaryKeyColumns.containsKey(entry.key)))
@@ -218,7 +214,7 @@ mixin SingleTableQueryMixin<T extends Table, D extends DataClass>
       return MapEntry(primaryKeyColumns[columnName], value);
     });
 
-    Expression<bool, BoolType> predicate;
+    Expression<bool> predicate;
     for (final entry in primaryKeyValues.entries) {
       final comparison =
           _Comparison(entry.key, _ComparisonOperator.equal, entry.value);

@@ -3,20 +3,18 @@ part of 'query_builder.dart';
 /// Signature of a function that will be invoked when a database is created.
 typedef OnCreate = Future<void> Function(Migrator m);
 
-/// Signature of a function that will be invoked when a database is upgraded.
+/// Signature of a function that will be invoked when a database is upgraded
+/// or downgraded.
+/// In version upgrades: from < to
+/// In version downgrades: from > to
 typedef OnUpgrade = Future<void> Function(Migrator m, int from, int to);
-
-/// Signature of a function that's called after a migration has finished and the
-/// database is ready to be used. Useful to populate data.
-@Deprecated('This is never used')
-typedef OnMigrationFinished = Future<void> Function();
 
 /// Signature of a function that's called before a database is marked opened by
 /// moor, but after migrations took place. This is a suitable callback to to
 /// populate initial data or issue `PRAGMA` statements that you want to use.
 typedef OnBeforeOpen = Future<void> Function(OpeningDetails details);
 
-Future<void> _defaultOnCreate(Migrator m) => m.createAllTables();
+Future<void> _defaultOnCreate(Migrator m) => m.createAll();
 Future<void> _defaultOnUpdate(Migrator m, int from, int to) async =>
     throw Exception("You've bumped the schema version for your moor database "
         "but didn't provide a strategy for schema updates. Please do that by "
@@ -29,14 +27,15 @@ class MigrationStrategy {
   final OnCreate onCreate;
 
   /// Executes when the database has been opened previously, but the last access
-  /// happened at a lower [GeneratedDatabase.schemaVersion].
+  /// happened at a different [GeneratedDatabase.schemaVersion].
+  /// Schema version upgrades and downgrades will both be run here.
   final OnUpgrade onUpgrade;
 
   /// Executes after the database is ready to be used (ie. it has been opened
   /// and all migrations ran), but before any other queries will be sent. This
   /// makes it a suitable place to populate data after the database has been
   /// created or set sqlite `PRAGMAS` that you need.
-  final OnBeforeOpen beforeOpen;
+  final OnBeforeOpen /*?*/ beforeOpen;
 
   /// Construct a migration strategy from the provided [onCreate] and
   /// [onUpgrade] methods.
@@ -47,29 +46,41 @@ class MigrationStrategy {
   });
 }
 
-/// A function that executes queries and ignores what they return.
-typedef SqlExecutor = Future<void> Function(String sql, [List<dynamic> args]);
-
 /// Runs migrations declared by a [MigrationStrategy].
 class Migrator {
   final GeneratedDatabase _db;
-  final SqlExecutor _executor;
 
   /// Used internally by moor when opening the database.
-  Migrator(this._db, this._executor);
+  Migrator(this._db);
 
   /// Creates all tables specified for the database, if they don't exist
+  @Deprecated('Use createAll() instead')
   Future<void> createAllTables() async {
     for (final table in _db.allTables) {
       await createTable(table);
     }
   }
 
+  /// Creates all tables, triggers, views, indexes and everything else defined
+  /// in the database, if they don't exist.
+  Future<void> createAll() async {
+    for (final entity in _db.allSchemaEntities) {
+      if (entity is TableInfo) {
+        await createTable(entity);
+      } else if (entity is Trigger) {
+        await createTrigger(entity);
+      } else if (entity is Index) {
+        await createIndex(entity);
+      } else if (entity is OnCreateQuery) {
+        await _issueCustomQuery(entity.sql, const []);
+      } else {
+        throw AssertionError('Unknown entity: $entity');
+      }
+    }
+  }
+
   GenerationContext _createContext() {
-    return GenerationContext(
-      _db.typeSystem,
-      _SimpleSqlAsQueryExecutor(_executor),
-    );
+    return GenerationContext.fromDb(_db);
   }
 
   /// Creates the given table if it doesn't exist
@@ -82,7 +93,7 @@ class Migrator {
       _writeCreateTable(table, context);
     }
 
-    return issueCustomQuery(context.sql, context.boundVariables);
+    return _issueCustomQuery(context.sql, context.boundVariables);
   }
 
   void _writeCreateTable(TableInfo table, GenerationContext context) {
@@ -115,7 +126,7 @@ class Migrator {
       for (var i = 0; i < pkList.length; i++) {
         final column = pkList[i];
 
-        context.buffer.write(column.$name);
+        context.buffer.write(escapeIfNeeded(column.$name));
 
         if (i != pkList.length - 1) context.buffer.write(', ');
       }
@@ -147,10 +158,40 @@ class Migrator {
       ..write(';');
   }
 
+  /// Executes the `CREATE TRIGGER` statement that created the [trigger].
+  Future<void> createTrigger(Trigger trigger) {
+    return _issueCustomQuery(trigger.createTriggerStmt, const []);
+  }
+
+  /// Executes a `CREATE INDEX` statement to create the [index].
+  Future<void> createIndex(Index index) {
+    return _issueCustomQuery(index.createIndexStmt, const []);
+  }
+
+  /// Drops a table, trigger or index.
+  Future<void> drop(DatabaseSchemaEntity entity) async {
+    final escapedName = escapeIfNeeded(entity.entityName);
+
+    String kind;
+
+    if (entity is TableInfo) {
+      kind = 'TABLE';
+    } else if (entity is Trigger) {
+      kind = 'TRIGGER';
+    } else if (entity is Index) {
+      kind = 'INDEX';
+    } else {
+      // Entity that can't be dropped.
+      return;
+    }
+
+    await _issueCustomQuery('DROP $kind IF EXISTS $escapedName;');
+  }
+
   /// Deletes the table with the given name. Note that this function does not
   /// escape the [name] parameter.
   Future<void> deleteTable(String name) async {
-    return issueCustomQuery('DROP TABLE IF EXISTS $name;');
+    return _issueCustomQuery('DROP TABLE IF EXISTS $name;');
   }
 
   /// Adds the given column to the specified table.
@@ -161,12 +202,17 @@ class Migrator {
     column.writeColumnDefinition(context);
     context.buffer.write(';');
 
-    return issueCustomQuery(context.sql);
+    return _issueCustomQuery(context.sql);
   }
 
   /// Executes the custom query.
-  Future<void> issueCustomQuery(String sql, [List<dynamic> args]) async {
-    return _executor(sql, args);
+  @Deprecated('Use customStatement in the database class')
+  Future<void> issueCustomQuery(String sql, [List<dynamic> args]) {
+    return _issueCustomQuery(sql, args);
+  }
+
+  Future<void> _issueCustomQuery(String sql, [List<dynamic> args]) {
+    return _db.customStatement(sql, args);
   }
 }
 
@@ -190,48 +236,35 @@ class OpeningDetails {
   const OpeningDetails(this.versionBefore, this.versionNow);
 }
 
-class _SimpleSqlAsQueryExecutor extends QueryExecutor {
-  final SqlExecutor executor;
+/// Extension providing the [destructiveFallback] strategy.
+extension DestructiveMigrationExtension on GeneratedDatabase {
+  /// Provides a destructive [MigrationStrategy] that will delete and then
+  /// re-create all tables, triggers and indices.
+  ///
+  /// To use this behavior, override the `migration` getter in your database:
+  ///
+  /// ```dart
+  /// @UseMoor(...)
+  /// class MyDatabase extends _$MyDatabase {
+  ///   @override
+  ///   MigrationStrategy get migration => destructiveFallback;
+  /// }
+  /// ```
+  MigrationStrategy get destructiveFallback {
+    return MigrationStrategy(
+      onCreate: _defaultOnCreate,
+      onUpgrade: (m, from, to) async {
+        // allSchemaEntities are sorted topologically references between them.
+        // Reverse order for deletion in order to not break anything.
+        final reversedEntities = m._db.allSchemaEntities.toList().reversed;
 
-  _SimpleSqlAsQueryExecutor(this.executor);
+        for (final entity in reversedEntities) {
+          await m.drop(entity);
+        }
 
-  @override
-  TransactionExecutor beginTransaction() {
-    throw UnsupportedError('Not supported for migrations');
-  }
-
-  @override
-  Future<bool> ensureOpen() {
-    return Future.value(true);
-  }
-
-  @override
-  Future<void> runBatched(List<BatchedStatement> statements) {
-    throw UnsupportedError('Not supported for migrations');
-  }
-
-  @override
-  Future<void> runCustom(String statement, [List<dynamic> args]) {
-    return executor(statement, args);
-  }
-
-  @override
-  Future<int> runDelete(String statement, List args) {
-    throw UnsupportedError('Not supported for migrations');
-  }
-
-  @override
-  Future<int> runInsert(String statement, List args) {
-    throw UnsupportedError('Not supported for migrations');
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> runSelect(String statement, List args) {
-    throw UnsupportedError('Not supported for migrations');
-  }
-
-  @override
-  Future<int> runUpdate(String statement, List args) {
-    throw UnsupportedError('Not supported for migrations');
+        // Re-create them now
+        await m.createAll();
+      },
+    );
   }
 }

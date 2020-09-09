@@ -3,22 +3,38 @@ part of '../ast.dart';
 enum ReferenceAction { setNull, setDefault, cascade, restrict, noAction }
 
 class ForeignKeyClause extends AstNode {
-  final TableReference foreignTable;
+  TableReference foreignTable;
   final List<Reference> columnNames;
   final ReferenceAction onDelete;
   final ReferenceAction onUpdate;
+  DeferrableClause deferrable;
 
-  ForeignKeyClause(
-      {@required this.foreignTable,
-      @required this.columnNames,
-      this.onDelete,
-      this.onUpdate});
+  ForeignKeyClause({
+    @required this.foreignTable,
+    @required this.columnNames,
+    this.onDelete,
+    this.onUpdate,
+    this.deferrable,
+  });
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitForeignKeyClause(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitForeignKeyClause(this, arg);
+  }
 
   @override
-  Iterable<AstNode> get childNodes => [foreignTable, ...columnNames];
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    foreignTable = transformer.transformChild(foreignTable, this, arg);
+    transformer.transformChildren(columnNames, this, arg);
+    deferrable = transformer.transformChild(deferrable, this, arg);
+  }
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        foreignTable,
+        ...columnNames,
+        if (deferrable != null) deferrable,
+      ];
 
   @override
   bool contentEquals(ForeignKeyClause other) {
@@ -26,13 +42,52 @@ class ForeignKeyClause extends AstNode {
   }
 }
 
+enum InitialDeferrableMode {
+  deferred,
+  immediate,
+}
+
+class DeferrableClause extends AstNode {
+  final bool not;
+  final InitialDeferrableMode /*?*/ declaredInitially;
+
+  DeferrableClause(this.not, this.declaredInitially);
+
+  InitialDeferrableMode get effectiveInitialMode {
+    if (not || declaredInitially == null) {
+      return InitialDeferrableMode.immediate;
+    }
+
+    return declaredInitially;
+  }
+
+  @override
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitDeferrableClause(this, arg);
+  }
+
+  @override
+  Iterable<AstNode> get childNodes => const Iterable.empty();
+
+  @override
+  bool contentEquals(DeferrableClause other) {
+    return other.not == not && other.declaredInitially == declaredInitially;
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {}
+}
+
 abstract class TableConstraint extends AstNode {
   final String name;
+  Token nameToken;
 
   TableConstraint(this.name);
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitTableConstraint(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitTableConstraint(this, arg);
+  }
 
   @override
   bool contentEquals(TableConstraint other) {
@@ -62,11 +117,16 @@ class KeyClause extends TableConstraint {
   }
 
   @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    transformer.transformChildren(indexedColumns, this, arg);
+  }
+
+  @override
   Iterable<AstNode> get childNodes => indexedColumns;
 }
 
 class CheckTable extends TableConstraint {
-  final Expression expression;
+  Expression expression;
 
   CheckTable(String name, this.expression) : super(name);
 
@@ -74,12 +134,17 @@ class CheckTable extends TableConstraint {
   bool _constraintEquals(CheckTable other) => true;
 
   @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    expression = transformer.transformChild(expression, this, arg);
+  }
+
+  @override
   Iterable<AstNode> get childNodes => [expression];
 }
 
 class ForeignKeyTableConstraint extends TableConstraint {
   final List<Reference> columns;
-  final ForeignKeyClause clause;
+  ForeignKeyClause clause;
 
   ForeignKeyTableConstraint(String name,
       {@required this.columns, @required this.clause})
@@ -87,6 +152,12 @@ class ForeignKeyTableConstraint extends TableConstraint {
 
   @override
   bool _constraintEquals(ForeignKeyTableConstraint other) => true;
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    transformer.transformChildren(columns, this, arg);
+    clause = transformer.transformChild(clause, this, arg);
+  }
 
   @override
   Iterable<AstNode> get childNodes => [...columns, clause];

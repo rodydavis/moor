@@ -1,10 +1,16 @@
+import 'package:analyzer/dart/element/element.dart';
+import 'package:analyzer/dart/element/nullability_suffix.dart';
 import 'package:moor_generator/moor_generator.dart';
+import 'package:moor_generator/src/analyzer/errors.dart';
+import 'package:analyzer/dart/element/type.dart';
 import 'package:moor_generator/src/analyzer/runner/steps.dart';
 import 'package:moor_generator/src/analyzer/sql_queries/type_mapping.dart';
+import 'package:moor_generator/src/backends/backend.dart';
 import 'package:moor_generator/src/model/declarations/declaration.dart';
 import 'package:moor_generator/src/model/used_type_converter.dart';
 import 'package:moor_generator/src/utils/names.dart';
 import 'package:moor_generator/src/utils/string_escaper.dart';
+import 'package:moor_generator/src/utils/type_converter_hint.dart';
 import 'package:recase/recase.dart';
 import 'package:sqlparser/sqlparser.dart';
 
@@ -12,11 +18,26 @@ class CreateTableReader {
   /// The AST of this `CREATE TABLE` statement.
   final TableInducingStatement stmt;
   final Step step;
+  final List<ImportStatement> imports;
 
-  CreateTableReader(this.stmt, this.step);
+  static const _schemaReader = SchemaFromCreateTable(moorExtensions: true);
+  static final RegExp _enumRegex =
+      RegExp(r'^enum\((\w+)\)$', caseSensitive: false);
 
-  MoorTable extractTable(TypeMapper mapper) {
-    final table = SchemaFromCreateTable(moorExtensions: true).read(stmt);
+  CreateTableReader(this.stmt, this.step, [this.imports = const []]);
+
+  Future<MoorTable> extractTable(TypeMapper mapper) async {
+    Table table;
+    try {
+      table = _schemaReader.read(stmt);
+    } catch (e) {
+      step.reportError(ErrorInMoorFile(
+        span: stmt.tableNameToken.span,
+        message: 'Could not extract schema information for this table: $e',
+      ));
+
+      return null;
+    }
 
     final foundColumns = <String, MoorColumn>{};
     final primaryKey = <MoorColumn>{};
@@ -31,6 +52,33 @@ class CreateTableReader {
       UsedTypeConverter converter;
       String defaultValue;
       String overriddenJsonKey;
+
+      final enumMatch = column.definition != null
+          ? _enumRegex.firstMatch(column.definition.typeName)
+          : null;
+      if (enumMatch != null) {
+        final dartTypeName = enumMatch.group(1);
+        final dartType = await _readDartType(dartTypeName);
+
+        if (dartType == null) {
+          step.reportError(ErrorInMoorFile(
+            message: 'Type $dartTypeName could not be found. Are you missing '
+                'an import?',
+            severity: Severity.error,
+            span: column.definition.typeNames.span,
+          ));
+        } else {
+          try {
+            converter = UsedTypeConverter.forEnumColumn(dartType);
+          } on InvalidTypeForEnumConverterException catch (e) {
+            step.reportError(ErrorInMoorFile(
+              message: e.errorDescription,
+              severity: Severity.error,
+              span: column.definition.typeNames.span,
+            ));
+          }
+        }
+      }
 
       // columns from virtual tables don't necessarily have a definition, so we
       // can't read the constraints.
@@ -47,15 +95,27 @@ class CreateTableReader {
         }
         if (constraint is Default) {
           final dartType = dartTypeNames[moorType];
-          final sqlType = sqlTypes[moorType];
-          final expressionName = 'const CustomExpression<$dartType, $sqlType>';
+          final expressionName = 'const CustomExpression<$dartType>';
           final sqlDefault = constraint.expression.span.text;
           defaultValue = '$expressionName(${asDartLiteral(sqlDefault)})';
         }
 
         if (constraint is MappedBy) {
-          converter = _readTypeConverter(constraint);
-          // don't write MAPPED BY constraints when creating the table
+          if (converter != null) {
+            // Already has a converter from an ENUM type
+            step.reportError(ErrorInMoorFile(
+              message: 'This column has an ENUM type, which implicitly creates '
+                  "a type converter. You can't apply another converter to such "
+                  'column. ',
+              span: constraint.span,
+              severity: Severity.warning,
+            ));
+            continue;
+          }
+
+          converter = await _readTypeConverter(moorType, constraint);
+          // don't write MAPPED BY constraints when creating the table, they're
+          // a convenience feature by the compiler
           continue;
         }
         if (constraint is JsonKey) {
@@ -74,6 +134,10 @@ class CreateTableReader {
       // VIRTUAL TABLE statements - use the entire statement as declaration.
       final declaration =
           MoorColumnDeclaration(column.definition ?? stmt, step.file);
+
+      if (converter != null) {
+        column.applyTypeHint(TypeConverterHint(converter));
+      }
 
       final parsed = MoorColumn(
         type: moorType,
@@ -124,8 +188,47 @@ class CreateTableReader {
     )..parserTable = table;
   }
 
-  UsedTypeConverter _readTypeConverter(MappedBy mapper) {
-    // todo we need to somehow parse the dart expression and check types
+  Future<UsedTypeConverter> _readTypeConverter(
+      ColumnType sqlType, MappedBy mapper) async {
+    final code = mapper.mapper.dartCode;
+    final type = await step.task.backend.resolveTypeOf(step.file.uri, code);
+
+    // todo report lint for any of those cases or when resolveTypeOf throws
+    if (type is! InterfaceType) {
+      return null;
+    }
+
+    final interfaceType = type as InterfaceType;
+    // TypeConverter declares a "D mapToDart(S fromDb);". We need to know D
+    final typeInDart = interfaceType.getMethod('mapToDart').returnType;
+
+    return UsedTypeConverter(
+        expression: code, mappedType: typeInDart, sqlType: sqlType);
+  }
+
+  Future<DartType> _readDartType(String typeIdentifier) async {
+    final dartImports = imports
+        .map((import) => import.importedFile)
+        .where((importUri) => importUri.endsWith('.dart'));
+
+    for (final import in dartImports) {
+      final resolved = step.task.session.resolve(step.file, import);
+      LibraryElement library;
+      try {
+        library = await step.task.backend.resolveDart(resolved.uri);
+      } on NotALibraryException {
+        continue;
+      }
+
+      final foundElement = library.exportNamespace.get(typeIdentifier);
+      if (foundElement is ClassElement) {
+        return foundElement.instantiate(
+          typeArguments: const [],
+          nullabilitySuffix: NullabilitySuffix.none,
+        );
+      }
+    }
+
     return null;
   }
 }

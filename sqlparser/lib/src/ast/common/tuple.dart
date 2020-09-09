@@ -2,20 +2,32 @@ part of '../ast.dart';
 
 /// A tuple of values, denotes in brackets. `(<expr>, ..., <expr>)`.
 ///
-/// Notice that this class extends [Expression] because the type inference
-/// algorithm works best when tuples are treated as expressions. Syntactically,
-/// tuples aren't expressions.
+/// In sqlite, this is also called a "row value".
 class Tuple extends Expression {
   /// The expressions appearing in this tuple.
   final List<Expression> expressions;
 
-  Tuple({@required this.expressions});
+  /// Whether this tuple is used as an expression, e.g. a [row value][r v].
+  ///
+  /// Other tuples might appear in `VALUES` clauses.
+  ///
+  /// [r v]: https://www.sqlite.org/rowvalue.html
+  final bool usedAsRowValue;
+
+  Tuple({@required this.expressions, this.usedAsRowValue = false});
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitTuple(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitTuple(this, arg);
+  }
 
   @override
-  Iterable<AstNode> get childNodes => expressions;
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    transformer.transformChildren(expressions, this, arg);
+  }
+
+  @override
+  List<Expression> get childNodes => expressions;
 
   @override
   bool contentEquals(Tuple other) => true;

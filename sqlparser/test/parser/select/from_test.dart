@@ -5,13 +5,9 @@ import 'package:sqlparser/src/utils/ast_equality.dart';
 
 import '../utils.dart';
 
-void _enforceFrom(SelectStatement stmt, List<Queryable> expected) {
+void _enforceFrom(SelectStatement stmt, Queryable expected) {
   enforceHasSpan(stmt);
-  expect(stmt.from.length, expected.length);
-
-  for (var i = 0; i < stmt.from.length; i++) {
-    enforceEqual(stmt.from[i], expected[i]);
-  }
+  enforceEqual(stmt.from, expected);
 }
 
 void main() {
@@ -20,7 +16,7 @@ void main() {
       final stmt =
           SqlEngine().parse('SELECT * FROM tbl').rootNode as SelectStatement;
 
-      enforceEqual(stmt.from.single, TableReference('tbl', null));
+      enforceEqual(stmt.from, TableReference('tbl', null));
     });
 
     test('from more than one table', () {
@@ -30,14 +26,41 @@ void main() {
 
       _enforceFrom(
         stmt,
-        [
-          TableReference('tbl', 'test'),
-          TableReference('table2', null),
-        ],
+        JoinClause(
+          primary: TableReference('tbl', 'test'),
+          joins: [
+            Join(
+              operator: JoinOperator.comma,
+              query: TableReference('table2', null),
+            ),
+          ],
+        ),
       );
     });
 
-    test('from inner select statements', () {
+    test('more than one table with ON constraint', () {
+      final stmt = SqlEngine()
+          .parse('SELECT * FROM tbl AS test, table2 ON TRUE')
+          .rootNode as SelectStatement;
+
+      _enforceFrom(
+        stmt,
+        JoinClause(
+          primary: TableReference('tbl', 'test'),
+          joins: [
+            Join(
+              operator: JoinOperator.comma,
+              query: TableReference('table2', null),
+              constraint: OnConstraint(
+                expression: BooleanLiteral.withTrue(token(TokenType.$true)),
+              ),
+            ),
+          ],
+        ),
+      );
+    });
+
+    test('inner select statements', () {
       final stmt = SqlEngine()
           .parse(
               'SELECT * FROM table1, (SELECT * FROM table2 WHERE a) as "inner"')
@@ -45,17 +68,57 @@ void main() {
 
       _enforceFrom(
         stmt,
-        [
-          TableReference('table1', null),
-          SelectStatementAsSource(
-            statement: SelectStatement(
-              columns: [StarResultColumn(null)],
-              from: [TableReference('table2', null)],
-              where: Reference(columnName: 'a'),
+        JoinClause(
+          primary: TableReference('table1', null),
+          joins: [
+            Join(
+              operator: JoinOperator.comma,
+              query: SelectStatementAsSource(
+                statement: SelectStatement(
+                  columns: [StarResultColumn(null)],
+                  from: TableReference('table2', null),
+                  where: Reference(columnName: 'a'),
+                ),
+                as: 'inner',
+              ),
             ),
-            as: 'inner',
+          ],
+        ),
+      );
+    });
+
+    test('inner compound select statements', () {
+      final stmt = SqlEngine()
+          .parse('SELECT SUM(*) FROM (SELECT COUNT(*) FROM table1 UNION ALL '
+              'SELECT COUNT(*) from table2)')
+          .rootNode as SelectStatement;
+
+      final countStar = ExpressionResultColumn(
+        expression: FunctionExpression(
+          name: 'COUNT',
+          parameters: StarFunctionParameter(),
+        ),
+      );
+
+      _enforceFrom(
+        stmt,
+        SelectStatementAsSource(
+          statement: CompoundSelectStatement(
+            base: SelectStatement(
+              columns: [countStar],
+              from: TableReference('table1'),
+            ),
+            additional: [
+              CompoundSelectPart(
+                mode: CompoundSelectMode.unionAll,
+                select: SelectStatement(
+                  columns: [countStar],
+                  from: TableReference('table2'),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       );
     });
 
@@ -66,7 +129,8 @@ void main() {
               'LEFT OUTER JOIN table3 ON TRUE')
           .rootNode as SelectStatement;
 
-      _enforceFrom(stmt, [
+      _enforceFrom(
+        stmt,
         JoinClause(
           primary: TableReference('table1', null),
           joins: [
@@ -84,7 +148,44 @@ void main() {
             ),
           ],
         ),
-      ]);
+      );
+    });
+
+    test('table valued function', () {
+      testStatement(
+        '''
+SELECT DISTINCT user.name
+  FROM user, json_each(user.phone)
+WHERE json_each.value LIKE '704-%';
+        ''',
+        SelectStatement(
+          distinct: true,
+          columns: [
+            ExpressionResultColumn(
+              expression: Reference(tableName: 'user', columnName: 'name'),
+            ),
+          ],
+          from: JoinClause(
+            primary: TableReference('user'),
+            joins: [
+              Join(
+                operator: JoinOperator.comma,
+                query: TableValuedFunction(
+                  'json_each',
+                  ExprFunctionParameters(parameters: [
+                    Reference(tableName: 'user', columnName: 'phone')
+                  ]),
+                ),
+              ),
+            ],
+          ),
+          where: StringComparisonExpression(
+            left: Reference(tableName: 'json_each', columnName: 'value'),
+            operator: token(TokenType.like),
+            right: StringLiteral(stringLiteral('704-%')),
+          ),
+        ),
+      );
     });
   });
 }

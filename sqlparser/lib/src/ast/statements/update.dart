@@ -16,12 +16,12 @@ const Map<TokenType, FailureMode> _tokensToMode = {
   TokenType.ignore: FailureMode.ignore,
 };
 
-class UpdateStatement extends CrudStatement implements HasWhereClause {
+class UpdateStatement extends CrudStatement implements StatementWithWhere {
   final FailureMode or;
-  final TableReference table;
+  TableReference table;
   final List<SetComponent> set;
   @override
-  final Expression where;
+  Expression where;
 
   UpdateStatement(
       {WithClause withClause,
@@ -32,7 +32,17 @@ class UpdateStatement extends CrudStatement implements HasWhereClause {
       : super._(withClause);
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitUpdateStatement(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitUpdateStatement(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    withClause = transformer.transformNullableChild(withClause, this, arg);
+    table = transformer.transformChild(table, this, arg);
+    transformer.transformChildren(set, this, arg);
+    where = transformer.transformChild(where, this, arg);
+  }
 
   @override
   Iterable<AstNode> get childNodes => [
@@ -53,13 +63,21 @@ class UpdateStatement extends CrudStatement implements HasWhereClause {
 }
 
 class SetComponent extends AstNode {
-  final Reference column;
-  final Expression expression;
+  Reference column;
+  Expression expression;
 
   SetComponent({@required this.column, @required this.expression});
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitSetComponent(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitSetComponent(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    column = transformer.transformChild(column, this, arg);
+    expression = transformer.transformChild(expression, this, arg);
+  }
 
   @override
   Iterable<AstNode> get childNodes => [column, expression];

@@ -13,9 +13,17 @@ abstract class DatabaseAccessor<T extends GeneratedDatabase>
   final bool topLevel = true;
 
   /// The main database instance for this dao
-  @protected
-  final T db;
+  @override
+  final T attachedDatabase;
 
   /// Used internally by moor
-  DatabaseAccessor(this.db) : super.delegate(db);
+  DatabaseAccessor(this.attachedDatabase) : super.delegate(attachedDatabase);
+}
+
+/// Extension for generated dao classes to keep the old [db] field that was
+/// renamed to [DatabaseAccessor.attachedDatabase] in moor 3.0
+extension OldDbFieldInDatabaseAccessor<T extends GeneratedDatabase>
+    on DatabaseAccessor<T> {
+  /// The generated database that this dao is attached to.
+  T get db => attachedDatabase;
 }

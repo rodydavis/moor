@@ -31,13 +31,13 @@ mixin ExpressionParser on ParserBase {
 
         final whenExpr = _or();
         _consume(TokenType.then, 'Expected THEN');
-        final then = _or();
+        final then = expression();
         whens.add(WhenComponent(when: whenExpr, then: then)
           ..setSpan(whenToken, _previous));
       }
 
       if (_matchOne(TokenType.$else)) {
-        $else = _or();
+        $else = expression();
       }
 
       _consume(TokenType.end, 'Expected END to finish the case operator');
@@ -205,21 +205,41 @@ mixin ExpressionParser on ParserBase {
   }
 
   Expression _postfix() {
-    // todo parse ISNULL, NOTNULL, NOT NULL, etc.
-    // I don't even know the precedence ¯\_(ツ)_/¯ (probably not higher than
-    // unary)
     var expression = _primary();
 
-    while (_matchOne(TokenType.collate)) {
-      final collateOp = _previous;
-      final collateFun =
-          _consume(TokenType.identifier, 'Expected a collating sequence')
-              as IdentifierToken;
-      expression = CollateExpression(
-        inner: expression,
-        operator: collateOp,
-        collateFunction: collateFun,
-      )..setSpan(expression.first, collateFun);
+    // todo we don't currently parse "NOT NULL" (2 tokens) because of ambiguity
+    // with NOT BETWEEN / NOT IN / ... expressions
+    const matchedTokens = [
+      TokenType.collate,
+      TokenType.notNull,
+      TokenType.isNull
+    ];
+
+    while (_match(matchedTokens)) {
+      final operator = _previous;
+      switch (operator.type) {
+        case TokenType.collate:
+          final collateOp = _previous;
+          final collateFun =
+              _consume(TokenType.identifier, 'Expected a collating sequence')
+                  as IdentifierToken;
+          expression = CollateExpression(
+            inner: expression,
+            operator: collateOp,
+            collateFunction: collateFun,
+          );
+          break;
+        case TokenType.isNull:
+          expression = IsNullExpression(expression);
+          break;
+        case TokenType.notNull:
+          expression = IsNullExpression(expression, true);
+          break;
+        default:
+          // we checked with _match, this may never happen
+          throw AssertionError();
+      }
+      expression.setSpan(operator, _previous);
     }
 
     return expression;
@@ -231,7 +251,8 @@ mixin ExpressionParser on ParserBase {
 
     Literal _parseInner() {
       if (_matchOne(TokenType.numberLiteral)) {
-        return NumericLiteral(_parseNumber(token.lexeme), token);
+        final number = token as NumericToken;
+        return NumericLiteral(number.parsedNumber, token);
       }
       if (_matchOne(TokenType.stringLiteral)) {
         return StringLiteral(token as StringLiteralToken);
@@ -245,7 +266,18 @@ mixin ExpressionParser on ParserBase {
       if (_matchOne(TokenType.$false)) {
         return BooleanLiteral.withFalse(token);
       }
-      // todo CURRENT_TIME, CURRENT_DATE, CURRENT_TIMESTAMP
+
+      const timeLiterals = {
+        TokenType.currentTime: TimeConstantKind.currentTime,
+        TokenType.currentDate: TimeConstantKind.currentDate,
+        TokenType.currentTimestamp: TimeConstantKind.currentTimestamp,
+      };
+
+      if (_match(timeLiterals.keys)) {
+        final token = _previous;
+        return TimeConstantLiteral(timeLiterals[token.type], token);
+      }
+
       return null;
     }
 
@@ -270,6 +302,20 @@ mixin ExpressionParser on ParserBase {
         return SubQuery(select: selectStmt)..setSpan(left, _previous);
       } else {
         final expr = expression();
+
+        if (_matchOne(TokenType.comma)) {
+          // It's a row value!
+          final expressions = [expr];
+
+          do {
+            expressions.add(expression());
+          } while (_matchOne(TokenType.comma));
+
+          _consume(TokenType.rightParen, 'Expected a closing bracket');
+          return Tuple(expressions: expressions, usedAsRowValue: true)
+            ..setSpan(left, _previous);
+        }
+
         _consume(TokenType.rightParen, 'Expected a closing bracket');
         return Parentheses(left, expr, _previous)..setSpan(left, _previous);
       }
@@ -280,6 +326,17 @@ mixin ExpressionParser on ParserBase {
           ..token = typedToken
           ..setSpan(_previous, _previous);
       }
+    } else if (_matchOne(TokenType.cast)) {
+      final first = _previous;
+
+      _consume(TokenType.leftParen, 'Expected opening parenthesis after CAST');
+      final operand = expression();
+      _consume(TokenType.as, 'Expected AS operator here');
+      final type = _typeName();
+      final typeName = type.lexeme;
+      _consume(TokenType.rightParen, 'Expected closing bracket here');
+
+      return CastExpression(operand, typeName)..setSpan(first, _previous);
     } else if (_checkIdentifier()) {
       final first = _consumeIdentifier(
           'This error message should never be displayed. Please report.');
@@ -292,6 +349,7 @@ mixin ExpressionParser on ParserBase {
             tableName: first.identifier, columnName: second.identifier)
           ..setSpan(first, second);
       } else if (_matchOne(TokenType.leftParen)) {
+        // regular function invocation
         final parameters = _functionParameters();
         final rightParen = _consume(TokenType.rightParen,
             'Expected closing bracket after argument list');
@@ -308,9 +366,15 @@ mixin ExpressionParser on ParserBase {
       }
     }
 
-    _error('Could not parse this expression');
+    if (_peek is KeywordToken) {
+      _error('Could not parse this expression. Note: This is a reserved '
+          'keyword, you can escape it in double ticks');
+    } else {
+      _error('Could not parse this expression');
+    }
   }
 
+  @override
   Variable _variableOrNull() {
     if (_matchOne(TokenType.questionMarkVariable)) {
       return NumberedVariable(_previous as QuestionMarkVariableToken)
@@ -322,24 +386,30 @@ mixin ExpressionParser on ParserBase {
     return null;
   }
 
+  @override
   FunctionParameters _functionParameters() {
     if (_matchOne(TokenType.star)) {
-      return const StarFunctionParameter();
+      return StarFunctionParameter()
+        ..starToken = _previous
+        ..setSpan(_previous, _previous);
     }
 
     if (_check(TokenType.rightParen)) {
-      // nothing between the brackets -> empty parameter list
-      return ExprFunctionParameters(parameters: const []);
+      // nothing between the brackets -> empty parameter list. We mark it as
+      // synthetic because it has an empty span in the file
+      return ExprFunctionParameters(parameters: const [])..synthetic = true;
     }
 
     final distinct = _matchOne(TokenType.distinct);
     final parameters = <Expression>[];
+    final first = _peek;
 
     do {
       parameters.add(expression());
     } while (_matchOne(TokenType.comma));
 
-    return ExprFunctionParameters(distinct: distinct, parameters: parameters);
+    return ExprFunctionParameters(distinct: distinct, parameters: parameters)
+      ..setSpan(first, _previous);
   }
 
   AggregateExpression _aggregate(

@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/element/element.dart';
 import 'package:build/build.dart';
 import 'package:build_test/build_test.dart';
@@ -18,8 +17,12 @@ class TestBackend extends Backend {
   /// input files have been parsed and analyzed by the Dart analyzer.
   Future get _ready => _initCompleter.future;
 
-  TestBackend(this.fakeContent) {
-    _init();
+  TestBackend(this.fakeContent, {bool enableDartAnalyzer = true}) {
+    if (enableDartAnalyzer) {
+      _init();
+    } else {
+      _initCompleter.complete();
+    }
   }
 
   void _init() {
@@ -66,11 +69,6 @@ class _TestBackendTask extends BackendTask {
   Future<LibraryElement> resolveDart(Uri path) async {
     await backend._ready;
     return await backend._resolver.libraryFor(AssetId.resolve(path.toString()));
-  }
-
-  @override
-  Future<CompilationUnit> parseSource(String dart) async {
-    return null;
   }
 
   @override

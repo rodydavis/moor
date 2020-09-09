@@ -16,7 +16,13 @@ MoorOptions _$MoorOptionsFromJson(Map<String, dynamic> json) {
       'use_data_class_name_for_companions',
       'use_column_name_as_json_key_when_defined_in_moor_file',
       'generate_connect_constructor',
-      'sqlite_modules'
+      'legacy_type_inference',
+      'sqlite_modules',
+      'eagerly_load_dart_ast',
+      'data_class_to_companions',
+      'mutable_classes',
+      'raw_result_set_data',
+      'apply_converters_on_variables'
     ]);
     final val = MoorOptions(
       generateFromJsonStringConstructor: $checkedConvert(
@@ -27,7 +33,7 @@ MoorOptions _$MoorOptionsFromJson(Map<String, dynamic> json) {
           false,
       compactQueryMethods:
           $checkedConvert(json, 'compact_query_methods', (v) => v as bool) ??
-              false,
+              true,
       skipVerificationCode:
           $checkedConvert(json, 'skip_verification_code', (v) => v as bool) ??
               false,
@@ -38,9 +44,26 @@ MoorOptions _$MoorOptionsFromJson(Map<String, dynamic> json) {
               json,
               'use_column_name_as_json_key_when_defined_in_moor_file',
               (v) => v as bool) ??
-          false,
+          true,
       generateConnectConstructor: $checkedConvert(
               json, 'generate_connect_constructor', (v) => v as bool) ??
+          false,
+      legacyTypeInference:
+          $checkedConvert(json, 'legacy_type_inference', (v) => v as bool) ??
+              false,
+      eagerlyLoadDartAst:
+          $checkedConvert(json, 'eagerly_load_dart_ast', (v) => v as bool) ??
+              false,
+      dataClassToCompanions:
+          $checkedConvert(json, 'data_class_to_companions', (v) => v as bool) ??
+              true,
+      generateMutableClasses:
+          $checkedConvert(json, 'mutable_classes', (v) => v as bool) ?? false,
+      rawResultSetData:
+          $checkedConvert(json, 'raw_result_set_data', (v) => v as bool) ??
+              false,
+      applyConvertersOnVariables: $checkedConvert(
+              json, 'apply_converters_on_variables', (v) => v as bool) ??
           false,
       modules: $checkedConvert(
               json,
@@ -61,7 +84,12 @@ MoorOptions _$MoorOptionsFromJson(Map<String, dynamic> json) {
     'useColumnNameAsJsonKeyWhenDefinedInMoorFile':
         'use_column_name_as_json_key_when_defined_in_moor_file',
     'generateConnectConstructor': 'generate_connect_constructor',
-    'modules': 'sqlite_modules'
+    'legacyTypeInference': 'legacy_type_inference',
+    'eagerlyLoadDartAst': 'eagerly_load_dart_ast',
+    'dataClassToCompanions': 'data_class_to_companions',
+    'generateMutableClasses': 'mutable_classes',
+    'modules': 'sqlite_modules',
+    'rawResultSetData': 'raw_result_set_data',
   });
 }
 
@@ -100,4 +128,5 @@ T _$enumDecodeNullable<T>(
 const _$SqlModuleEnumMap = {
   SqlModule.json1: 'json1',
   SqlModule.fts5: 'fts5',
+  SqlModule.moor_ffi: 'moor_ffi',
 };

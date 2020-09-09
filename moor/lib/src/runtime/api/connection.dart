@@ -25,6 +25,12 @@ class DatabaseConnection {
   DatabaseConnection.fromExecutor(this.executor)
       : typeSystem = SqlTypeSystem.defaultInstance,
         streamQueries = StreamQueryStore();
+
+  /// Returns a database connection that is identical to this one, except that
+  /// it uses the provided [executor].
+  DatabaseConnection withExecutor(QueryExecutor executor) {
+    return DatabaseConnection(typeSystem, executor, streamQueries);
+  }
 }
 
 /// Manages a [DatabaseConnection] to send queries to the database.
@@ -67,14 +73,6 @@ abstract class DatabaseConnectionUser {
   /// Constructs a [DatabaseConnectionUser] that will use the provided
   /// [DatabaseConnection].
   DatabaseConnectionUser.fromConnection(this.connection);
-
-  /// Marks the tables as updated. This method will be called internally
-  /// whenever a update, delete or insert statement is issued on the database.
-  /// We can then inform all active select-streams on those tables that their
-  /// snapshot might be out-of-date and needs to be fetched again.
-  void markTablesUpdated(Set<TableInfo> tables) {
-    streamQueries.handleTableUpdates(tables);
-  }
 
   /// Creates and auto-updating stream from the given select statement. This
   /// method should not be used directly.

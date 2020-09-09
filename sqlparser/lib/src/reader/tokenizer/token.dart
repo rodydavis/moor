@@ -1,256 +1,352 @@
+import 'dart:math';
+
+import 'package:meta/meta.dart';
 import 'package:source_span/source_span.dart';
 import 'package:sqlparser/sqlparser.dart';
 
 enum TokenType {
-  leftParen,
-  rightParen,
-  comma,
-  dot,
-  doublePipe,
-  star,
-  slash,
-  percent,
-  plus,
-  minus,
-  shiftLeft,
-  shiftRight,
+  $case,
+  $default,
+  $do,
+  $else,
+  $false,
+  $for,
+  $if,
+  $in,
+  $index,
+  $is,
+  $null,
+  $true,
+  $values,
+  $with,
+  abort,
+  action,
+  add,
+  after,
+  all,
+  alter,
+  always,
   ampersand,
-  pipe,
+  analyze,
+  and,
+  as,
+  asc,
+  atSignVariable,
+  attach,
+  autoincrement,
+  before,
+  begin,
+  between,
+  by,
+  cascade,
+  cast,
+  check,
+  collate,
+  colon,
+  column,
+  colonVariable,
+  comma,
+  comment,
+  commit,
+  conflict,
+  constraint,
+  create,
+  cross,
+  current,
+  currentDate,
+  currentTime,
+  currentTimestamp,
+  database,
+  deferrable,
+  deferred,
+  delete,
+  desc,
+  detach,
+  distinct,
+  dollarSignVariable,
+  dot,
+  doubleEqual,
+  doublePipe,
+  drop,
+  each,
+  end,
+  eof,
+  equal,
+  escape,
+  except,
+  exclamationEqual,
+  exclude,
+  exclusive,
+  exists,
+  explain,
+  fail,
+  filter,
+  first,
+  following,
+  foreign,
+  from,
+  full,
+  generated,
+  glob,
+  group,
+  groups,
+  having,
+  identifier,
+  ignore,
+  immediate,
+  indexed,
+  initially,
+  inner,
+  insert,
+  instead,
+  intersect,
+  into,
+  isNull,
+  join,
+  key,
+  last,
+  left,
+  leftParen,
   less,
   lessEqual,
+  lessMore,
+  like,
+  limit,
+  match,
+  minus,
   more,
   moreEqual,
-  equal,
-  doubleEqual,
-  exclamationEqual,
-  lessMore,
-  $is,
-  $in,
-  not,
-  like,
-  glob,
-  match,
-  regexp,
-  escape,
-  and,
-  or,
-  tilde,
-  between,
-  exists,
-  collate,
-
-  questionMarkVariable,
-  colon,
-  colonVariable,
-  atSignVariable,
-  dollarSignVariable,
-
-  stringLiteral,
-  numberLiteral,
-  $true,
-  $false,
-  $null,
-  currentTime,
-  currentDate,
-  currentTimestamp,
-  identifier,
-
-  select,
-  delete,
-  update,
-  insert,
-  into,
-  distinct,
-  all,
-  from,
-  as,
-  where,
-
   natural,
-  left,
-  outer,
-  inner,
-  cross,
-  join,
-  on,
-  using,
-
-  group,
-  order,
-  by,
-  asc,
-  desc,
-  having,
-
-  limit,
+  no,
+  not,
+  notNull,
+  nothing,
+  nulls,
+  numberLiteral,
+  of,
   offset,
-
-  $case,
-  when,
-  then,
-  $else,
-  end,
-
-  window,
-  filter,
+  on,
+  or,
+  order,
+  others,
+  outer,
   over,
   partition,
-  range,
-  rows,
-  groups,
-  unbounded,
+  percent,
+  pipe,
+  plan,
+  plus,
+  pragma,
   preceding,
-  following,
-  current,
-  row,
-  exclude,
-  others,
-  ties,
-
-  rollback,
-  abort,
-  replace,
-  fail,
-  ignore,
-  set,
-
-  union,
-  intersect,
-  except,
-
-  create,
-  virtual,
-  table,
-  $if,
-  $with,
-  without,
-  rowid,
-  constraint,
-  autoincrement,
   primary,
-  foreign,
-  key,
-  unique,
-  check,
-  $default,
-  $values,
-  conflict,
-  references,
-  cascade,
-  restrict,
-  no,
-  action,
+  query,
+  questionMarkVariable,
+  range,
+  raise,
   recursive,
-
+  references,
+  regexp,
+  reindex,
+  release,
+  rename,
+  replace,
+  restrict,
+  right,
+  rightParen,
+  rollback,
+  row,
+  rowid,
+  rows,
+  savepoint,
+  select,
   semicolon,
-  comment,
-  eof,
+  set,
+  shiftLeft,
+  shiftRight,
+  slash,
+  star,
+  stringLiteral,
+  table,
+  temp,
+  temporary,
+  then,
+  ties,
+  tilde,
+  to,
+  transaction,
+  trigger,
+  unbounded,
+  union,
+  unique,
+  update,
+  using,
+  vacuum,
+  view,
+  virtual,
+  when,
+  where,
+  window,
+  without,
 
-  /// Moor specific token, used to declare a type converters
+  /// Moor specific token, used to declare type converter
   mapped,
   inlineDart,
   import,
   json,
+
+  /// A `**` token. This is only scanned when scanning for moor tokens.
+  doubleStar,
 }
 
 const Map<String, TokenType> keywords = {
-  'SELECT': TokenType.select,
-  'INSERT': TokenType.insert,
-  'INTO': TokenType.into,
-  'COLLATE': TokenType.collate,
-  'DISTINCT': TokenType.distinct,
-  'UPDATE': TokenType.update,
+  'ADD': TokenType.add,
+  'ABORT': TokenType.abort,
+  'ACTION': TokenType.action,
+  'AFTER': TokenType.after,
   'ALL': TokenType.all,
+  'ALTER': TokenType.alter,
+  'ALWAYS': TokenType.always,
+  'ANALYZE': TokenType.analyze,
   'AND': TokenType.and,
-  'OR': TokenType.or,
-  'EXISTS': TokenType.exists,
-  'BETWEEN': TokenType.between,
-  'DELETE': TokenType.delete,
-  'FROM': TokenType.from,
-  'NATURAL': TokenType.natural,
-  'LEFT': TokenType.left,
-  'OUTER': TokenType.outer,
-  'INNER': TokenType.inner,
-  'CROSS': TokenType.cross,
-  'JOIN': TokenType.join,
-  'ON': TokenType.on,
-  'USING': TokenType.using,
   'AS': TokenType.as,
-  'WHERE': TokenType.where,
-  'ORDER': TokenType.order,
-  'GROUP': TokenType.group,
-  'HAVING': TokenType.having,
-  'BY': TokenType.by,
   'ASC': TokenType.asc,
-  'DESC': TokenType.desc,
-  'LIMIT': TokenType.limit,
-  'OFFSET': TokenType.offset,
-  'SET': TokenType.set,
-  'IS': TokenType.$is,
-  'IN': TokenType.$in,
-  'LIKE': TokenType.like,
-  'GLOB': TokenType.glob,
-  'MATCH': TokenType.match,
-  'REGEXP': TokenType.regexp,
-  'ESCAPE': TokenType.escape,
-  'NOT': TokenType.not,
-  'TRUE': TokenType.$true,
-  'FALSE': TokenType.$false,
-  'NULL': TokenType.$null,
-  'CURRENT_TIME': TokenType.currentTime,
-  'CURRENT_DATE': TokenType.currentDate,
-  'CURRENT_TIMESTAMP': TokenType.currentTimestamp,
+  'ATTACH': TokenType.attach,
+  'AUTOINCREMENT': TokenType.autoincrement,
+  'BEFORE': TokenType.before,
+  'BEGIN': TokenType.begin,
+  'BETWEEN': TokenType.between,
+  'BY': TokenType.by,
+  'CASCADE': TokenType.cascade,
   'CASE': TokenType.$case,
-  'WHEN': TokenType.when,
-  'THEN': TokenType.then,
+  'CAST': TokenType.cast,
+  'CHECK': TokenType.check,
+  'COLLATE': TokenType.collate,
+  'COLUMN': TokenType.column,
+  'COMMIT': TokenType.commit,
+  'CONFLICT': TokenType.conflict,
+  'CONSTRAINT': TokenType.constraint,
+  'CREATE': TokenType.create,
+  'CROSS': TokenType.cross,
+  'CURRENT': TokenType.current,
+  'CURRENT_DATE': TokenType.currentDate,
+  'CURRENT_TIME': TokenType.currentTime,
+  'CURRENT_TIMESTAMP': TokenType.currentTimestamp,
+  'DATABASE': TokenType.database,
+  'DEFAULT': TokenType.$default,
+  'DEFERRABLE': TokenType.deferrable,
+  'DEFERRED': TokenType.deferred,
+  'DELETE': TokenType.delete,
+  'DESC': TokenType.desc,
+  'DETACH': TokenType.detach,
+  'DISTINCT': TokenType.distinct,
+  'DO': TokenType.$do,
+  'DROP': TokenType.drop,
+  'EACH': TokenType.each,
   'ELSE': TokenType.$else,
   'END': TokenType.end,
-  'ABORT': TokenType.abort,
-  'ROLLBACK': TokenType.rollback,
-  'REPLACE': TokenType.replace,
+  'ESCAPE': TokenType.escape,
+  'EXCEPT': TokenType.except,
+  'EXCLUDE': TokenType.exclude,
+  'EXCLUSIVE': TokenType.exclusive,
+  'EXISTS': TokenType.exists,
+  'EXPLAIN': TokenType.explain,
   'FAIL': TokenType.fail,
-  'IGNORE': TokenType.ignore,
-  'CREATE': TokenType.create,
-  'TABLE': TokenType.table,
-  'IF': TokenType.$if,
-  'WITH': TokenType.$with,
-  'WITHOUT': TokenType.without,
-  'ROWID': TokenType.rowid,
-  'CONSTRAINT': TokenType.constraint,
-  'AUTOINCREMENT': TokenType.autoincrement,
-  'PRIMARY': TokenType.primary,
-  'FOREIGN': TokenType.foreign,
-  'KEY': TokenType.key,
-  'UNIQUE': TokenType.unique,
-  'CHECK': TokenType.check,
-  'DEFAULT': TokenType.$default,
-  'CONFLICT': TokenType.conflict,
-  'REFERENCES': TokenType.references,
-  'CASCADE': TokenType.cascade,
-  'RESTRICT': TokenType.restrict,
-  'NO': TokenType.no,
-  'ACTION': TokenType.action,
+  'FALSE': TokenType.$false,
   'FILTER': TokenType.filter,
+  'FIRST': TokenType.first,
+  'FOLLOWING': TokenType.following,
+  'FOR': TokenType.$for,
+  'FOREIGN': TokenType.foreign,
+  'FROM': TokenType.from,
+  'FULL': TokenType.full,
+  'GENERATED': TokenType.generated,
+  'GLOB': TokenType.glob,
+  'GROUP': TokenType.group,
+  'GROUPS': TokenType.groups,
+  'HAVING': TokenType.having,
+  'IF': TokenType.$if,
+  'IGNORE': TokenType.ignore,
+  'IMMEDIATE': TokenType.immediate,
+  'IN': TokenType.$in,
+  'INDEX': TokenType.$index,
+  'INDEXED': TokenType.indexed,
+  'INITIALLY': TokenType.initially,
+  'INNER': TokenType.inner,
+  'INSERT': TokenType.insert,
+  'INSTEAD': TokenType.instead,
+  'INTERSECT': TokenType.intersect,
+  'INTO': TokenType.into,
+  'IS': TokenType.$is,
+  'ISNULL': TokenType.isNull,
+  'JOIN': TokenType.join,
+  'KEY': TokenType.key,
+  'LAST': TokenType.last,
+  'LEFT': TokenType.left,
+  'LIKE': TokenType.like,
+  'LIMIT': TokenType.limit,
+  'MATCH': TokenType.match,
+  'NATURAL': TokenType.natural,
+  'NO': TokenType.no,
+  'NOT': TokenType.not,
+  'NOTHING': TokenType.nothing,
+  'NOTNULL': TokenType.notNull,
+  'NULL': TokenType.$null,
+  'NULLS': TokenType.nulls,
+  'OF': TokenType.of,
+  'OFFSET': TokenType.offset,
+  'ON': TokenType.on,
+  'OR': TokenType.or,
+  'ORDER': TokenType.order,
+  'OTHERS': TokenType.others,
+  'OUTER': TokenType.outer,
   'OVER': TokenType.over,
   'PARTITION': TokenType.partition,
+  'PLAN': TokenType.plan,
+  'PRAGMA': TokenType.pragma,
+  'PRECEDING': TokenType.preceding,
+  'PRIMARY': TokenType.primary,
+  'QUERY': TokenType.query,
+  'RAISE': TokenType.raise,
   'RANGE': TokenType.range,
   'RECURSIVE': TokenType.recursive,
-  'ROWS': TokenType.rows,
-  'GROUPS': TokenType.groups,
-  'UNBOUNDED': TokenType.unbounded,
-  'PRECEDING': TokenType.preceding,
-  'FOLLOWING': TokenType.following,
-  'CURRENT': TokenType.current,
+  'REFERENCES': TokenType.references,
+  'REGEXP': TokenType.regexp,
+  'REINDEX': TokenType.reindex,
+  'RELEASE': TokenType.release,
+  'RENAME': TokenType.rename,
+  'REPLACE': TokenType.replace,
+  'RIGHT': TokenType.right,
+  'RESTRICT': TokenType.restrict,
+  'ROLLBACK': TokenType.rollback,
   'ROW': TokenType.row,
-  'EXCLUDE': TokenType.exclude,
-  'OTHERS': TokenType.others,
+  'ROWID': TokenType.rowid,
+  'ROWS': TokenType.rows,
+  'SAVEPOINT': TokenType.savepoint,
+  'SELECT': TokenType.select,
+  'SET': TokenType.set,
+  'TABLE': TokenType.table,
+  'TEMP': TokenType.temp,
+  'TEMPORARY': TokenType.temporary,
+  'THEN': TokenType.then,
   'TIES': TokenType.ties,
-  'WINDOW': TokenType.window,
-  'VALUES': TokenType.$values,
+  'TO': TokenType.to,
+  'TRANSACTION': TokenType.transaction,
+  'TRIGGER': TokenType.trigger,
+  'TRUE': TokenType.$true,
+  'UNBOUNDED': TokenType.unbounded,
   'UNION': TokenType.union,
-  'INTERSECT': TokenType.intersect,
-  'EXCEPT': TokenType.except,
+  'UNIQUE': TokenType.unique,
+  'UPDATE': TokenType.update,
+  'USING': TokenType.using,
+  'VACUUM': TokenType.vacuum,
+  'VALUES': TokenType.$values,
+  'VIEW': TokenType.view,
   'VIRTUAL': TokenType.virtual,
+  'WHEN': TokenType.when,
+  'WHERE': TokenType.where,
+  'WINDOW': TokenType.window,
+  'WITH': TokenType.$with,
+  'WITHOUT': TokenType.without,
 };
 
 /// Maps [TokenType]s which are keywords to their lexeme.
@@ -260,13 +356,22 @@ final Map<TokenType, String> reverseKeywords = {
 };
 
 const Map<String, TokenType> moorKeywords = {
-  'MAPPED': TokenType.mapped,
   'IMPORT': TokenType.import,
   'JSON': TokenType.json,
+  'MAPPED': TokenType.mapped,
+};
+
+/// A set of [TokenType]s that can be parsed as an identifier.
+const Set<TokenType> _identifierKeywords = {
+  TokenType.join,
+  TokenType.rowid,
 };
 
 /// Returns true if the [type] belongs to a keyword
 bool isKeyword(TokenType type) => reverseKeywords.containsKey(type);
+
+/// Returns true if [name] is a reserved keyword in sqlite.
+bool isKeywordLexeme(String name) => keywords.containsKey(name.toUpperCase());
 
 class Token implements SyntacticEntity {
   final TokenType type;
@@ -390,13 +495,107 @@ class KeywordToken extends Token {
 
   bool canConvertToIdentifier() {
     // https://stackoverflow.com/a/45775719, but we don't parse indexed yet.
-    return type == TokenType.join || moorKeywords.values.contains(type);
+    return _identifierKeywords.contains(type) ||
+        moorKeywords.values.contains(type);
   }
 
   IdentifierToken convertToIdentifier() {
     isIdentifier = true;
 
-    return IdentifierToken(false, span, synthetic: false);
+    return IdentifierToken(false, span, synthetic: true);
+  }
+}
+
+/// Used to represent additional information of [TokenType.numberLiteral].
+///
+/// For more details, see the docs on https://www.sqlite.org/syntax/numeric-literal.html
+class NumericToken extends Token {
+  /// The digits before the decimal point, or null if this numeric token was
+  /// written in hexadecimal notation or started with a decimal point.
+  String /*?*/ digitsBeforeDecimal;
+
+  /// Whether this token has a decimal point in it.
+  bool hasDecimalPoint;
+
+  /// The digits after the decimal point, or null if this numeric token doesn't
+  /// have anything after its decimal point.
+  String /*?*/ digitsAfterDecimal;
+
+  /// The hexadecimal digits of this token, or null if this token was not in
+  /// hex notation.
+  String /*?*/ hexDigits;
+
+  /// An exponent to the base of ten.
+  ///
+  /// For instance, `2E-2` has an [exponent] of `-2`.
+  final int /*?*/ exponent;
+
+  NumericToken(
+    FileSpan span, {
+    this.digitsBeforeDecimal,
+    this.hasDecimalPoint = false,
+    this.digitsAfterDecimal,
+    this.hexDigits,
+    this.exponent,
+  }) : super(TokenType.numberLiteral, span);
+
+  /// The numeric literal represented by this token.
+  num get parsedNumber {
+    if (hexDigits != null) {
+      return int.parse(hexDigits, radix: 16);
+    }
+
+    final beforeDecimal =
+        digitsBeforeDecimal != null ? int.parse(digitsBeforeDecimal) : 0;
+
+    num number;
+
+    if (!hasDecimalPoint) {
+      number = beforeDecimal;
+    } else if (digitsAfterDecimal != null) {
+      number = beforeDecimal + double.parse('.$digitsAfterDecimal');
+    } else {
+      // Is of the form 3., so just infer as double
+      number = beforeDecimal.toDouble();
+    }
+
+    if (exponent != null) {
+      number *= pow(10, exponent);
+    }
+    return number;
+  }
+
+  @visibleForTesting
+  bool hasSameStructureAs(NumericToken other) {
+    return other.digitsBeforeDecimal == digitsBeforeDecimal &&
+        other.hasDecimalPoint == hasDecimalPoint &&
+        other.digitsAfterDecimal == digitsAfterDecimal &&
+        other.hexDigits == hexDigits &&
+        other.exponent == exponent;
+  }
+
+  @override
+  String toString() {
+    final buffer = StringBuffer();
+    if (hexDigits != null) {
+      buffer..write('0x')..write(hexDigits);
+    } else {
+      if (digitsBeforeDecimal != null) {
+        buffer.write(digitsBeforeDecimal);
+      }
+      if (hasDecimalPoint) {
+        buffer.write('.');
+      }
+      if (digitsAfterDecimal != null) {
+        buffer.write(digitsAfterDecimal);
+      }
+
+      if (exponent != null) {
+        buffer..write('E')..write(exponent);
+      }
+    }
+
+    return buffer.toString();
   }
 }
 
@@ -421,6 +620,11 @@ class TokenizerError {
   final SourceLocation location;
 
   TokenizerError(this.message, this.location);
+
+  @override
+  String toString() {
+    return '$message at $location';
+  }
 }
 
 /// Thrown by the sql engine when a sql statement can't be tokenized.

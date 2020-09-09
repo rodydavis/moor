@@ -8,19 +8,19 @@ part of '../analysis.dart';
 ///   statement.
 /// - reports syntactic errors that aren't handled in the parser to keep that
 ///   implementation simpler.
-class AstPreparingVisitor extends RecursiveVisitor<void> {
+class AstPreparingVisitor extends RecursiveVisitor<void, void> {
   final List<Variable> _foundVariables = [];
   final AnalysisContext context;
 
   AstPreparingVisitor({this.context});
 
   void start(AstNode root) {
-    root.accept(this);
+    root.accept(this, null);
     _resolveIndexOfVariables();
   }
 
   @override
-  void visitSelectStatement(SelectStatement e) {
+  void visitSelectStatement(SelectStatement e, void arg) {
     // a select statement can appear as a sub query which has its own scope, so
     // we need to fork the scope here. There is one special case though:
     // Select statements that appear as a query source can't depend on data
@@ -81,11 +81,11 @@ class AstPreparingVisitor extends RecursiveVisitor<void> {
       }
     }
 
-    visitChildren(e);
+    visitChildren(e, arg);
   }
 
   @override
-  void visitResultColumn(ResultColumn e) {
+  void visitResultColumn(ResultColumn e, void arg) {
     if (e is StarResultColumn) {
       // doesn't need special treatment, star expressions can't be referenced
     } else if (e is ExpressionResultColumn) {
@@ -93,11 +93,11 @@ class AstPreparingVisitor extends RecursiveVisitor<void> {
         e.scope.register(e.as, e);
       }
     }
-    visitChildren(e);
+    visitChildren(e, arg);
   }
 
   @override
-  void visitQueryable(Queryable e) {
+  void defaultQueryable(Queryable e, void arg) {
     final scope = e.scope;
     e.when(
       isTable: (table) {
@@ -105,6 +105,10 @@ class AstPreparingVisitor extends RecursiveVisitor<void> {
         // acts like a table for expressions in the same scope, so let's
         // register it.
         if (table.as != null) {
+          // todo should we register a TableAlias instead? Some parts of this
+          // package and moor_generator might depend on this being a table
+          // directly (e.g. nested result sets in moor).
+          // Same for nested selects, joins and table-valued functions below.
           scope.register(table.as, table);
         }
       },
@@ -118,27 +122,33 @@ class AstPreparingVisitor extends RecursiveVisitor<void> {
         // Queryables, so we can deal with them by visiting the children and
         // dont't need to do anything here.
       },
+      isTableFunction: (function) {
+        if (function.as != null) {
+          scope.register(function.as, function);
+        }
+        scope.register(function.name, function);
+      },
     );
 
-    visitChildren(e);
+    visitChildren(e, arg);
   }
 
   @override
-  void visitCommonTableExpression(CommonTableExpression e) {
+  void visitCommonTableExpression(CommonTableExpression e, void arg) {
     e.scope.register(e.cteTableName, e);
-    visitChildren(e);
+    visitChildren(e, arg);
   }
 
   @override
-  void visitNumberedVariable(NumberedVariable e) {
+  void visitNumberedVariable(NumberedVariable e, void arg) {
     _foundVariables.add(e);
-    visitChildren(e);
+    visitChildren(e, arg);
   }
 
   @override
-  void visitNamedVariable(ColonNamedVariable e) {
+  void visitNamedVariable(ColonNamedVariable e, void arg) {
     _foundVariables.add(e);
-    visitChildren(e);
+    visitChildren(e, arg);
   }
 
   void _resolveIndexOfVariables() {
@@ -174,17 +184,40 @@ class AstPreparingVisitor extends RecursiveVisitor<void> {
     }
   }
 
-  void _forkScope(AstNode node) {
-    node.scope = node.scope.createChild();
+  void _forkScope(AstNode node, {bool inheritAvailableColumns}) {
+    node.scope = node.scope
+        .createChild(inheritAvailableColumns: inheritAvailableColumns);
   }
 
   @override
-  void visitChildren(AstNode e) {
+  void defaultNode(AstNode e, void arg) {
     // hack to fork scopes on statements (selects are handled above)
     if (e is Statement && e is! SelectStatement) {
       _forkScope(e);
     }
 
-    super.visitChildren(e);
+    visitChildren(e, arg);
+  }
+
+  @override
+  void visitUpsertClause(UpsertClause e, void arg) {
+    // report syntax error if DO UPDATE clause is used without specifying a
+    // conflict target.
+    if (e.onColumns == null && e.action is DoUpdate) {
+      context.reportError(AnalysisError(
+        type: AnalysisErrorType.synctactic,
+        message: 'Expected a conflict clause when using DO UPDATE',
+        relevantNode: e.action,
+      ));
+    }
+
+    // DO UPDATE clauses have their own reference scope, in which the row
+    // "excluded" can be referred. Setting that row happens in the column
+    // resolver
+    if (e.action is DoUpdate) {
+      _forkScope(e.action, inheritAvailableColumns: true);
+    }
+
+    visitChildren(e, arg);
   }
 }

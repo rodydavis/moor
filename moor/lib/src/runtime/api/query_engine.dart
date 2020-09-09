@@ -26,9 +26,13 @@ mixin QueryEngine on DatabaseConnectionUser {
   /// Here, the `update` method would be called on the [GeneratedDatabase]
   /// although it is very likely that the user meant to call it on the
   /// [Transaction] t. We can detect this by calling the function passed to
-  /// `transaction` in a forked [Zone] storing the transaction in
+  /// `transaction` in a forked [Zone].
   @protected
   bool get topLevel => false;
+
+  /// The database that this query engine is attached to.
+  @visibleForOverriding
+  GeneratedDatabase get attachedDatabase;
 
   /// We can detect when a user called methods on the wrong [QueryEngine]
   /// (e.g. calling [QueryEngine.into] in a transaction, where
@@ -47,18 +51,63 @@ mixin QueryEngine on DatabaseConnectionUser {
     }
   }
 
+  /// Marks the tables as updated. This method will be called internally
+  /// whenever a update, delete or insert statement is issued on the database.
+  /// We can then inform all active select-streams on those tables that their
+  /// snapshot might be out-of-date and needs to be fetched again.
+  void markTablesUpdated(Set<TableInfo> tables) {
+    notifyUpdates(
+      {for (final table in tables) TableUpdate(table.actualTableName)},
+    );
+  }
+
+  /// Dispatches the set of [updates] to the stream query manager.
+  ///
+  /// Internally, moor will call this method whenever a update, delete or insert
+  /// statement is issued on the database. We can then inform all active select-
+  /// streams affected that their snapshot might be out-of-date and needs to be
+  /// fetched again.
+  void notifyUpdates(Set<TableUpdate> updates) {
+    final withRulesApplied = attachedDatabase.streamUpdateRules.apply(updates);
+    _resolvedEngine.streamQueries.handleTableUpdates(withRulesApplied);
+  }
+
+  /// Creates a stream that emits `null` each time a table that would affect
+  /// [query] is changed.
+  ///
+  /// When called inside a transaction, the stream will close when the
+  /// transaction completes or is rolled back. Otherwise, the stream will
+  /// complete as the database is closed.
+  Stream<Null> tableUpdates(
+      [TableUpdateQuery query = const TableUpdateQuery.any()]) {
+    return _resolvedEngine.streamQueries
+        .updatesForSync(query)
+        .asyncMap((event) async {
+      // streamQueries.updatesForSync is a synchronous stream - make it
+      // asynchronous by awaiting null for each event.
+      return await null;
+    });
+  }
+
+  /// Performs the async [fn] after this executor is ready, or directly if it's
+  /// already ready.
+  ///
+  /// Calling this method directly might circumvent the current transaction. For
+  /// that reason, it should only be called inside moor.
+  Future<T> doWhenOpened<T>(FutureOr<T> Function(QueryExecutor e) fn) {
+    return executor.ensureOpen(attachedDatabase).then((_) => fn(executor));
+  }
+
   /// Starts an [InsertStatement] for a given table. You can use that statement
   /// to write data into the [table] by using [InsertStatement.insert].
-  @protected
-  @visibleForTesting
-  InsertStatement<T> into<T extends DataClass>(TableInfo<Table, T> table) =>
-      InsertStatement<T>(_resolvedEngine, table);
+  InsertStatement<T, D> into<T extends Table, D extends DataClass>(
+      TableInfo<T, D> table) {
+    return InsertStatement<T, D>(_resolvedEngine, table);
+  }
 
   /// Starts an [UpdateStatement] for the given table. You can use that
   /// statement to update individual rows in that table by setting a where
   /// clause on that table and then use [UpdateStatement.write].
-  @protected
-  @visibleForTesting
   UpdateStatement<Tbl, R> update<Tbl extends Table, R extends DataClass>(
           TableInfo<Tbl, R> table) =>
       UpdateStatement(_resolvedEngine, table);
@@ -87,8 +136,6 @@ mixin QueryEngine on DatabaseConnectionUser {
   ///
   /// For more information on queries, see the
   /// [documentation](https://moor.simonbinder.eu/docs/getting-started/writing_queries/).
-  @protected
-  @visibleForTesting
   SimpleSelectStatement<T, R> select<T extends Table, R extends DataClass>(
       TableInfo<T, R> table,
       {bool distinct = false}) {
@@ -96,12 +143,48 @@ mixin QueryEngine on DatabaseConnectionUser {
         distinct: distinct);
   }
 
+  /// Starts a complex statement on [table] that doesn't necessarily use all of
+  /// [table]'s columns.
+  ///
+  /// Unlike [select], which automatically selects all columns of [table], this
+  /// method is suitable for more advanced queries that can use [table] without
+  /// using their column. As an example, assuming we have a table `comments`
+  /// with a `TextColumn content`, this query would report the average length of
+  /// a comment:
+  /// ```dart
+  /// Stream<num> watchAverageCommentLength() {
+  ///   final avgLength = comments.content.length.avg();
+  ///   final query = selectWithoutResults(comments)
+  ///     ..addColumns([avgLength]);
+  ///
+  ///   return query.map((row) => row.read(avgLength)).watchSingle();
+  /// }
+  /// ```
+  ///
+  /// While this query reads from `comments`, it doesn't use all of it's columns
+  /// (in fact, it uses none of them!). This makes it suitable for
+  /// [selectOnly] instead of [select].
+  ///
+  /// The [distinct] parameter (defaults to false) can be used to remove
+  /// duplicate rows from the result set.
+  ///
+  /// For simple queries, use [select].
+  ///
+  /// See also:
+  ///  - the documentation on [aggregate expressions](https://moor.simonbinder.eu/docs/getting-started/expressions/#aggregate)
+  ///  - the documentation on [group by](https://moor.simonbinder.eu/docs/advanced-features/joins/#group-by)
+  JoinedSelectStatement<T, R> selectOnly<T extends Table, R extends DataClass>(
+    TableInfo<T, R> table, {
+    bool distinct = false,
+  }) {
+    return JoinedSelectStatement<T, R>(
+        _resolvedEngine, table, [], distinct, false);
+  }
+
   /// Starts a [DeleteStatement] that can be used to delete rows from a table.
   ///
   /// See the [documentation](https://moor.simonbinder.eu/docs/getting-started/writing_queries/#updates-and-deletes)
   /// for more details and example on how delete statements work.
-  @protected
-  @visibleForTesting
   DeleteStatement<T, D> delete<T extends Table, D extends DataClass>(
       TableInfo<T, D> table) {
     return DeleteStatement<T, D>(_resolvedEngine, table);
@@ -111,14 +194,25 @@ mixin QueryEngine on DatabaseConnectionUser {
   /// rows that have been changed.
   /// You can use the [updates] parameter so that moor knows which tables are
   /// affected by your query. All select streams that depend on a table
-  /// specified there will then issue another query.
-  @protected
-  @visibleForTesting
-  Future<int> customUpdate(String query,
-      {List<Variable> variables = const [], Set<TableInfo> updates}) async {
-    return _customWrite(query, variables, updates, (executor, sql, vars) {
-      return executor.runUpdate(sql, vars);
-    });
+  /// specified there will then update their data. For more accurate results,
+  /// you can also set the [updateKind] parameter to [UpdateKind.delete] or
+  /// [UpdateKind.update]. This is optional, but can improve the accuracy of
+  /// query updates, especially when using triggers.
+  Future<int> customUpdate(
+    String query, {
+    List<Variable> variables = const [],
+    Set<TableInfo> updates,
+    UpdateKind updateKind,
+  }) async {
+    return _customWrite(
+      query,
+      variables,
+      updates,
+      updateKind,
+      (executor, sql, vars) {
+        return executor.runUpdate(sql, vars);
+      },
+    );
   }
 
   /// Executes a custom insert statement and returns the last inserted rowid.
@@ -126,59 +220,45 @@ mixin QueryEngine on DatabaseConnectionUser {
   /// You can tell moor which tables your query is going to affect by using the
   /// [updates] parameter. Query-streams running on any of these tables will
   /// then be re-run.
-  @protected
-  @visibleForTesting
   Future<int> customInsert(String query,
       {List<Variable> variables = const [], Set<TableInfo> updates}) {
-    return _customWrite(query, variables, updates, (executor, sql, vars) {
-      return executor.runInsert(sql, vars);
-    });
+    return _customWrite(
+      query,
+      variables,
+      updates,
+      UpdateKind.insert,
+      (executor, sql, vars) {
+        return executor.runInsert(sql, vars);
+      },
+    );
   }
 
   /// Common logic for [customUpdate] and [customInsert] which takes care of
   /// mapping the variables, running the query and optionally informing the
   /// stream-queries.
-  Future<T> _customWrite<T>(String query, List<Variable> variables,
-      Set<TableInfo> updates, _CustomWriter<T> writer) async {
+  Future<T> _customWrite<T>(
+    String query,
+    List<Variable> variables,
+    Set<TableInfo> updates,
+    UpdateKind updateKind,
+    _CustomWriter<T> writer,
+  ) async {
     final engine = _resolvedEngine;
-    final executor = engine.executor;
 
     final ctx = GenerationContext.fromDb(engine);
     final mappedArgs = variables.map((v) => v.mapToSimpleValue(ctx)).toList();
 
     final result =
-        await executor.doWhenOpened((e) => writer(e, query, mappedArgs));
+        await engine.doWhenOpened((e) => writer(e, query, mappedArgs));
 
     if (updates != null) {
-      await engine.streamQueries.handleTableUpdates(updates);
+      engine.notifyUpdates({
+        for (final table in updates)
+          TableUpdate(table.actualTableName, kind: updateKind),
+      });
     }
 
     return result;
-  }
-
-  /// Executes a custom select statement once. To use the variables, mark them
-  /// with a "?" in your [query]. They will then be changed to the appropriate
-  /// value.
-  @protected
-  @visibleForTesting
-  @Deprecated('use customSelectQuery(...).get() instead')
-  Future<List<QueryRow>> customSelect(String query,
-      {List<Variable> variables = const []}) async {
-    return customSelectQuery(query, variables: variables).get();
-  }
-
-  /// Creates a stream from a custom select statement.To use the variables, mark
-  /// them with a "?" in your [query]. They will then be changed to the
-  /// appropriate value. The stream will re-emit items when any table in
-  /// [readsFrom] changes, so be sure to set it to the set of tables your query
-  /// reads data from.
-  @protected
-  @visibleForTesting
-  @Deprecated('use customSelectQuery(...).watch() instead')
-  Stream<List<QueryRow>> customSelectStream(String query,
-      {List<Variable> variables = const [], Set<TableInfo> readsFrom}) {
-    return customSelectQuery(query, variables: variables, readsFrom: readsFrom)
-        .watch();
   }
 
   /// Creates a custom select statement from the given sql [query]. To run the
@@ -190,22 +270,34 @@ mixin QueryEngine on DatabaseConnectionUser {
   ///
   /// If you use variables in your query (for instance with "?"), they will be
   /// bound to the [variables] you specify on this query.
-  @protected
-  @visibleForTesting
-  Selectable<QueryRow> customSelectQuery(String query,
+  Selectable<QueryRow> customSelect(String query,
       {List<Variable> variables = const [],
       Set<TableInfo> readsFrom = const {}}) {
     readsFrom ??= {};
     return CustomSelectStatement(query, variables, readsFrom, _resolvedEngine);
   }
 
+  /// Creates a custom select statement from the given sql [query]. To run the
+  /// query once, use [Selectable.get]. For an auto-updating streams, set the
+  /// set of tables the ready [readsFrom] and use [Selectable.watch]. If you
+  /// know the query will never emit more than one row, you can also use
+  /// [Selectable.getSingle] and [Selectable.watchSingle] which return the item
+  /// directly or wrapping it into a list.
+  ///
+  /// If you use variables in your query (for instance with "?"), they will be
+  /// bound to the [variables] you specify on this query.
+  @Deprecated('Renamed to customSelect')
+  Selectable<QueryRow> customSelectQuery(String query,
+      {List<Variable> variables = const [],
+      Set<TableInfo> readsFrom = const {}}) {
+    return customSelect(query, variables: variables, readsFrom: readsFrom);
+  }
+
   /// Executes the custom sql [statement] on the database.
-  @protected
-  @visibleForTesting
   Future<void> customStatement(String statement, [List<dynamic> args]) {
     final engine = _resolvedEngine;
 
-    return engine.executor.doWhenOpened((executor) {
+    return engine.doWhenOpened((executor) {
       return executor.runCustom(statement, args);
     });
   }
@@ -213,22 +305,34 @@ mixin QueryEngine on DatabaseConnectionUser {
   /// Executes [action] in a transaction, which means that all its queries and
   /// updates will be called atomically.
   ///
-  /// Please be aware of the following limitations of transactions:
-  ///  1. Inside a transaction, auto-updating streams cannot be created. This
-  ///     operation will throw at runtime. The reason behind this is that a
-  ///     stream might have a longer lifespan than a transaction, but it still
-  ///     needs to know about the transaction because the data in a transaction
-  ///     might be different than that of the "global" database instance.
-  ///  2. Nested transactions are not supported. Creating another transaction
-  ///     inside a transaction returns the parent transaction.
+  /// Returns the value of [action].
+  /// When [action] throws an exception, the transaction will be reset and no
+  /// changes will be applied to the databases. The exception will be rethrown
+  /// by [transaction].
+  ///
+  /// The behavior of stream queries in transactions depends on where the stream
+  /// was created:
+  ///
+  /// - streams created outside of a [transaction] block: The stream will update
+  ///   with the tables modified in the transaction after it completes
+  ///   successfully. If the transaction fails, the stream will not update.
+  /// - streams created inside a [transaction] block: The stream will update for
+  ///   each write in the transaction. When the transaction completes,
+  ///   successful or not, streams created in it will close. Writes happening
+  ///   outside of this transaction will not affect the stream.
+  ///
+  /// Please note that nested transactions are not supported. Creating another
+  /// transaction inside a transaction returns the parent transaction.
+  ///
+  /// See also:
+  ///  - the docs on [transactions](https://moor.simonbinder.eu/docs/transactions/)
   Future<T> transaction<T>(Future<T> Function() action) async {
     final resolved = _resolvedEngine;
     if (resolved is Transaction) {
       return action();
     }
 
-    final executor = resolved.executor;
-    return await executor.doWhenOpened((executor) {
+    return await resolved.doWhenOpened((executor) {
       final transactionExecutor = executor.beginTransaction();
       final transaction = Transaction(this, transactionExecutor);
 
@@ -248,6 +352,7 @@ mixin QueryEngine on DatabaseConnectionUser {
             // complete() will also take care of committing the transaction
             await transaction.complete();
           }
+          await transaction.disposeChildStreams();
         }
       });
     });
@@ -278,14 +383,17 @@ mixin QueryEngine on DatabaseConnectionUser {
   ///    );
   ///  });
   /// ```
-  @protected
-  @visibleForTesting
   Future<void> batch(Function(Batch) runInBatch) {
     final engine = _resolvedEngine;
 
     final batch = Batch._(engine, engine is! Transaction);
-    runInBatch(batch);
-    return batch._commit();
+    final result = runInBatch(batch);
+
+    if (result is Future) {
+      return result.then((_) => batch._commit());
+    } else {
+      return batch._commit();
+    }
   }
 
   /// Runs [calculation] in a forked [Zone] that has its [_resolvedEngine] set

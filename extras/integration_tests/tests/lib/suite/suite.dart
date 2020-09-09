@@ -7,7 +7,7 @@ import 'custom_objects.dart';
 import 'migrations.dart';
 
 abstract class TestExecutor {
-  QueryExecutor createExecutor();
+  DatabaseConnection createConnection();
 
   /// Delete the data that would be written by the executor.
   Future deleteData();
@@ -24,4 +24,10 @@ void runAllTests(TestExecutor executor) {
   migrationTests(executor);
   customObjectTests(executor);
   transactionTests(executor);
+
+  test('can close database without interacting with it', () async {
+    final connection = executor.createConnection();
+
+    await connection.executor.close();
+  });
 }

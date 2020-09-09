@@ -1,6 +1,7 @@
 import 'package:moor/moor.dart';
 import 'package:test/test.dart';
 
+import '../data/tables/converter.dart';
 import '../data/tables/custom_tables.dart';
 import '../data/utils/mocks.dart';
 
@@ -18,31 +19,62 @@ const _createWithConstraints = 'CREATE TABLE IF NOT EXISTS with_constraints ('
 
 const _createConfig = 'CREATE TABLE IF NOT EXISTS config ('
     'config_key VARCHAR not null primary key, '
-    'config_value VARCHAR);';
+    'config_value VARCHAR, '
+    'sync_state INTEGER, '
+    'sync_state_implicit INTEGER);';
 
 const _createMyTable = 'CREATE TABLE IF NOT EXISTS mytable ('
     'someid INTEGER NOT NULL PRIMARY KEY, '
     'sometext VARCHAR, '
-    'somebool INTEGER, '
+    'is_inserting INTEGER, '
     'somedate INTEGER);';
 
 const _createEmail = 'CREATE VIRTUAL TABLE IF NOT EXISTS email USING '
     'fts5(sender, title, body);';
 
+const _createMyTrigger =
+    '''CREATE TRIGGER my_trigger AFTER INSERT ON config BEGIN
+  INSERT INTO with_defaults VALUES (new.config_key, LENGTH(new.config_value));
+END;''';
+
+const _createValueIndex =
+    'CREATE INDEX IF NOT EXISTS value_idx ON config (config_value);';
+
+const _defaultInsert = 'INSERT INTO config (config_key, config_value) '
+    "VALUES ('key', 'values')";
+
 void main() {
   // see ../data/tables/tables.moor
-  test('creates tables as specified in .moor files', () async {
+  test('creates everything as specified in .moor files', () async {
     final mockExecutor = MockExecutor();
-    final mockQueryExecutor = MockQueryExecutor();
     final db = CustomTablesDb(mockExecutor);
-    await Migrator(db, mockQueryExecutor).createAllTables();
+    await db.createMigrator().createAll();
 
-    verify(mockQueryExecutor.call(_createNoIds, []));
-    verify(mockQueryExecutor.call(_createWithDefaults, []));
-    verify(mockQueryExecutor.call(_createWithConstraints, []));
-    verify(mockQueryExecutor.call(_createConfig, []));
-    verify(mockQueryExecutor.call(_createMyTable, []));
-    verify(mockQueryExecutor.call(_createEmail, []));
+    verify(mockExecutor.runCustom(_createNoIds, []));
+    verify(mockExecutor.runCustom(_createWithDefaults, []));
+    verify(mockExecutor.runCustom(_createWithConstraints, []));
+    verify(mockExecutor.runCustom(_createConfig, []));
+    verify(mockExecutor.runCustom(_createMyTable, []));
+    verify(mockExecutor.runCustom(_createEmail, []));
+    verify(mockExecutor.runCustom(_createMyTrigger, []));
+    verify(mockExecutor.runCustom(_createValueIndex, []));
+    verify(mockExecutor.runCustom(_defaultInsert, []));
+  });
+
+  test('can create trigger manually', () async {
+    final mockExecutor = MockExecutor();
+    final db = CustomTablesDb(mockExecutor);
+
+    await db.createMigrator().createTrigger(db.myTrigger);
+    verify(mockExecutor.runCustom(_createMyTrigger, []));
+  });
+
+  test('can create index manually', () async {
+    final mockExecutor = MockExecutor();
+    final db = CustomTablesDb(mockExecutor);
+
+    await db.createMigrator().createIndex(db.valueIdx);
+    verify(mockExecutor.runCustom(_createValueIndex, []));
   });
 
   test('infers primary keys correctly', () async {
@@ -99,5 +131,102 @@ void main() {
     await db.multiple(db.withDefaults.a.equals('foo')).get();
 
     verify(mock.runSelect(argThat(contains('with_defaults.a')), any));
+  });
+
+  test('runs queries with nested results', () async {
+    final mock = MockExecutor();
+    final db = CustomTablesDb(mock);
+
+    const row = {
+      'a': 'text for a',
+      'b': 42,
+      'nested_0.a': 'text',
+      'nested_0.b': 1337,
+      'nested_0.c': 18.7,
+    };
+
+    when(mock.runSelect(any, any)).thenAnswer((_) {
+      return Future.value([row]);
+    });
+
+    final result = await db.multiple(const Constant(true)).getSingle();
+
+    expect(
+      result,
+      MultipleResult(
+        row: QueryRow(row, db),
+        a: 'text for a',
+        b: 42,
+        c: WithConstraint(a: 'text', b: 1337, c: 18.7),
+      ),
+    );
+  });
+
+  test('runs queries with nested results that are null', () async {
+    final mock = MockExecutor();
+    final db = CustomTablesDb(mock);
+
+    const row = {
+      'a': 'text for a',
+      'b': 42,
+      'nested_0.a': 'text',
+      'nested_0.b': null, // note: with_constraints.b is NOT NULL in the db
+      'nested_0.c': 18.7,
+    };
+
+    when(mock.runSelect(any, any)).thenAnswer((_) {
+      return Future.value([row]);
+    });
+
+    final result = await db.multiple(const Constant(true)).getSingle();
+
+    expect(
+      result,
+      MultipleResult(
+        row: QueryRow(row, db),
+        a: 'text for a',
+        b: 42,
+        // Since a non-nullable column in c was null, table should be null
+        c: null,
+      ),
+    );
+  });
+
+  test('applies column name mapping when needed', () async {
+    final mock = MockExecutor();
+    final db = CustomTablesDb(mock);
+
+    when(mock.runSelect(any, any)).thenAnswer((_) async {
+      return [
+        {
+          'ck': 'key',
+          'cf': 'value',
+          'cs1': 1,
+          'cs2': 1,
+        }
+      ];
+    });
+
+    final entry = await db.readConfig('key').getSingle();
+    expect(
+      entry,
+      Config(
+        configKey: 'key',
+        configValue: 'value',
+        syncState: SyncType.locallyUpdated,
+        syncStateImplicit: SyncType.locallyUpdated,
+      ),
+    );
+  });
+
+  test('applies type converters to variables', () async {
+    final mock = MockExecutor();
+    final db = CustomTablesDb(mock);
+
+    when(mock.runSelect(any, any)).thenAnswer((_) => Future.value([]));
+    await db.typeConverterVar(SyncType.locallyCreated,
+        [SyncType.locallyUpdated, SyncType.synchronized]).get();
+
+    verify(mock.runSelect(any, [0, 1, 2]));
   });
 }

@@ -1,3 +1,135 @@
+## 3.3.1
+
+- Support changing `onData` handlers for query streams.
+  This fixes a bug ocurring when using `queryStream.first` multiple times.
+
+## 3.3.0
+
+- New `package:moor/ffi.dart` library to replace the `moor_ffi` package. When migrating, Flutter
+  users need to depend on the `sqlite3_flutter_libs` package as well.
+  The changelog of `moor_ffi` contains further information about this
+- New (in generator): `apply_converters_on_variables` [build option](https://moor.simonbinder.eu/docs/advanced-features/builder_options/).
+  When enabled, type converter will be enabled on variables for analyzed queries.
+  This will be the default option in the future.
+
+## 3.2.0
+
+- It's now possible to change the name of a class generated for moor-file queries. See
+  [the documentation](https://moor.simonbinder.eu/docs/using-sql/moor_files/#result-class-names) for details.
+- Added the `multiLine`, `caseSensitive`, `unicode` and `doAll` flags to the `regex` sql extension
+  method.
+  They require `moor_ffi` version `0.7.0` or later.
+
+## 3.1.0
+
+- Update companions now implement `==` and `hashCode`
+- New `containsCase` method for text in `package:moor/extensions/moor_ffi.dart`
+- The `toCompanion` method is back for data classes, but its generation can be disabled with a build option
+- New feature: [Implicit enum converters](https://moor.simonbinder.eu/docs/advanced-features/type_converters/#implicit-enum-converters)
+- Added the `destructiveFallback` extension to databases. It can be used in `migrationStrategy` to delete
+  and then re-create all tables, indices and triggers.
+
+## 3.0.2
+
+- Fix update statements not escaping column names ([#539](https://github.com/simolus3/moor/issues/539))
+
+## 3.0.1
+
+- Fix `mapFromRowOrNull` not working without a prefix ([#534](https://github.com/simolus3/moor/pull/534))
+
+## 3.0.0
+
+- __Breaking__: `package:moor/moor_web.dart` no longer exports `package:moor/moor.dart`. If you've relied
+  on this, you'll now need to import `package:moor/moor.dart` as well.
+- __Breaking__: Remove deprecated members:
+  - top-level `and`, `or` and `not` methods. Use `&`, `|` and `.not()` instead.
+  - top-level `year`, `month`, `day`, `hour`, `minute`, `second` methods. 
+    Use the extension member on `Expression<DateTime>` instead.
+  - `InsertStatement.insertAll` (use batches instead)
+  - the `orReplace` boolean parameter on inserts (use `mode: InsertMode.orReplace` instead)
+  - remove the top-level `isIn` and `isNotIn` functions
+    (use the `.isIn` and `.isNotIn` instance methods instead)
+  - `CustomSelectStatement.execute` and `constructFetcher` - use `get()` or `watch()`,
+    respectively
+- __Breaking__: Remove the second type variable on `Expression` and subclasses.
+- __Breaking__: Remove `customSelectStream` from `QueryEngine`. The `customSelect`
+  method now returns an `Selectable` (like `customSelectQuery`, which in turn has been deprecated).
+- __Breaking__: Columns that are aliases to sqlite's `rowid` column are no longer considered required
+  for inserts
+- __Breaking__: Changes the way data classes and companions are inserted:
+  - Removed `Insertable.toCompanion`
+  - Added `Insertable.toColumns` to obtain a map from column names to values that should be inserted
+  - Removed `TableInfo.entityToSql` - use `Insertable.toColumns` instead
+- __Breaking__: Renamed the `db` field in daos to `attachedDatabase`. The old field is available through
+  an extension.
+- __Breaking__: The `compact_query_methods` and `use_column_name_as_json_key_when_defined_in_moor_file` build
+  options are now enabled by default. This means that queries in moor files now generate a `Selectable` method
+  by default (instead of two methods for `get` and `watch`). Columns defined in moor files will have their
+  sql name as json key (moor used to transform their name to `camelCase`).
+  You can still disable both options to keep the old behavior.
+- __Breaking__: The last statement in a moor file must now end with a semicolon as well
+- Batches now run statements in the order they were issued. This required a breaking change for engine
+  implementers.
+- Experimentally support IndexedDB to store sqlite data on the web
+- Moor will no longer wait for query stream listeners to receive a done event when closing a database
+  or transaction.
+- Updated stream queries: They now take triggers into account and more accurately detect when an update
+  is necessary.
+- New `tableUpdates` method that can be used to listen for a subset of table updates outside of
+  a query.
+- New feature: Nested results for compiled queries ([#288](https://github.com/simolus3/moor/issues/288))
+  See the [documentation](https://moor.simonbinder.eu/docs/using-sql/moor_files/#nested-results) for
+  details on how and when to use this feature.
+- New feature: Use sql expressions for inserts or updates with the new `custom` factory on companions
+- New feature: Upserts in the Dart api! Read everything you need to know 
+  [here](https://moor.simonbinder.eu/docs/getting-started/writing_queries/#upserts).
+- Support using `MoorIsolates` in scenarios where only primitive messages can be passed between isolates.
+ 
+## 2.4.2
+
+- Fix `beforeOpen` callback deadlocking when using the isolate executor 
+  ([#431](https://github.com/simolus3/moor/issues/431))
+- Fix limit clause not being applied when using `.join` afterwards
+  ([#433](https://github.com/simolus3/moor/issues/433))
+ 
+## 2.4.1
+
+- Don't generate double quoted string literals in date time functions
+
+## 2.4.0
+
+- Support aggregate expressions and `group by` in the Dart api
+- Support type converters in moor files! The [documentation](https://moor.simonbinder.eu/docs/advanced-features/type_converters/)
+  has been updated to explain how to use them.
+- Support stream queries in transactions ([#356](https://github.com/simolus3/moor/issues/365))
+- Support table-valued functions (like `json_each` and `json_tree`) in moor files 
+  [#260](https://github.com/simolus3/moor/issues/260).
+- Fix a crash when opening a transaction without using it ([#361](https://github.com/simolus3/moor/issues/361))
+- New `mapFromCompanion` method in generated tables to convert a `UpdateCompanion` to a model.
+- Support generated moor classes in other builders (like `built_value`). Details [in the docs](https://moor.simonbinder.eu/docs/advanced-features/builder_options/)
+
+## 2.3.0
+
+- New `clientDefault` method for columns. It can be used for dynamic defaults that might be different for
+  each row. For instance, you can generate a uuid for each row with `text().clientDefault(() => Uuid().v4()();`
+- New CLI tool to analyze moor files: Learn more at [https://moor.simonbinder.eu/cli](https://moor.simonbinder.eu/cli)
+- Ability to override the default `ValueSerializer` globally by using `moorRuntimeOptions.valueSerializer`.
+- Moor files: You can now explicitly declare column types in those cases that the analyzer can't
+  infer it:
+  ```
+  selectVariable(:variable AS TEXT): SELECT :variable;
+  ```
+- Support for triggers and indices! You can declare them in a `.moor` file with a regular `CREATE TRIGGER`
+  or `CREATE INDEX` statement. Both triggers and indices will be created in the default `onCreate` function.
+  To create them in `onUpgrade`, use the new `createIndex` and `createTrigger` functions on a `Migrator`.
+- Support for moor-file queries that run on initialization ([#280](https://github.com/simolus3/moor/issues/280))
+  Declare them like this `@create: INSERT INTO users VALUES ('default', 'user')`
+- Support deletes in batches ([#325](https://github.com/simolus3/moor/issues/325))
+- Reduce unnecessary queries when a stream is unsubscribed and then re-subscribed ([#329](https://github.com/simolus3/moor/issues/329))
+- Experimental new type inference for the sql analyzer. For details, check the
+  `use_experimental_inference` [build option](https://moor.simonbinder.eu/docs/advanced-features/builder_options/)
+- Web: New `initializer` parameter to create the database when it doesn't exist
+  
 ## 2.2.0
 
 - Support custom expressions for selects in the Dart API:

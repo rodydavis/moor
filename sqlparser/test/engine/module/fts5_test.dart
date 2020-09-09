@@ -1,16 +1,18 @@
 import 'package:sqlparser/sqlparser.dart';
 import 'package:test/test.dart';
 
+final _fts5Options = EngineOptions(enabledExtensions: const [Fts5Extension()]);
+
 void main() {
   group('creating fts5 tables', () {
-    final engine = SqlEngine(enableFts5: true);
+    final engine = SqlEngine(_fts5Options);
 
     test('can create fts5 tables', () {
       final result = engine.analyze('CREATE VIRTUAL TABLE foo USING '
           "fts5(bar , tokenize = 'porter ascii')");
 
-      final table =
-          SchemaFromCreateTable().read(result.root as TableInducingStatement);
+      final table = const SchemaFromCreateTable()
+          .read(result.root as TableInducingStatement);
 
       expect(table.name, 'foo');
       final columns = table.resultColumns;
@@ -22,8 +24,8 @@ void main() {
       final result = engine
           .analyze('CREATE VIRTUAL TABLE foo USING fts5(bar, baz UNINDEXED)');
 
-      final table =
-          SchemaFromCreateTable().read(result.root as TableInducingStatement);
+      final table = const SchemaFromCreateTable()
+          .read(result.root as TableInducingStatement);
 
       expect(table.name, 'foo');
       expect(table.resultColumns.map((c) => c.name), ['bar', 'baz']);
@@ -33,11 +35,11 @@ void main() {
   group('type inference for function calls', () {
     SqlEngine engine;
     setUp(() {
-      engine = SqlEngine(enableFts5: true);
+      engine = SqlEngine(_fts5Options);
       // add an fts5 table for the following queries
       final fts5Result = engine.analyze('CREATE VIRTUAL TABLE foo USING '
           'fts5(bar, baz);');
-      engine.registerTable(SchemaFromCreateTable()
+      engine.registerTable(const SchemaFromCreateTable()
           .read(fts5Result.root as TableInducingStatement));
     });
 
@@ -77,11 +79,11 @@ void main() {
   group('type inference for function arguments', () {
     SqlEngine engine;
     setUp(() {
-      engine = SqlEngine(enableFts5: true);
+      engine = SqlEngine(_fts5Options);
       // add an fts5 table for the following queries
       final fts5Result = engine.analyze('CREATE VIRTUAL TABLE foo USING '
           'fts5(bar, baz);');
-      engine.registerTable(SchemaFromCreateTable()
+      engine.registerTable(const SchemaFromCreateTable()
           .read(fts5Result.root as TableInducingStatement));
     });
 
@@ -123,15 +125,15 @@ void main() {
   group('error reporting', () {
     SqlEngine engine;
     setUp(() {
-      engine = SqlEngine(enableFts5: true);
+      engine = SqlEngine(_fts5Options);
       // add an fts5 table for the following queries
       final fts5Result = engine.analyze('CREATE VIRTUAL TABLE foo USING '
           'fts5(bar, baz);');
-      engine.registerTable(SchemaFromCreateTable()
+      engine.registerTable(const SchemaFromCreateTable()
           .read(fts5Result.root as TableInducingStatement));
 
       final normalResult = engine.analyze('CREATE TABLE other (bar TEXT);');
-      engine.registerTable(SchemaFromCreateTable()
+      engine.registerTable(const SchemaFromCreateTable()
           .read(normalResult.root as TableInducingStatement));
     });
 

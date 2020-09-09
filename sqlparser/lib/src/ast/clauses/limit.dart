@@ -8,13 +8,19 @@ abstract class LimitBase implements AstNode {}
 class Limit extends AstNode implements LimitBase {
   Expression count;
   Token offsetSeparator; // can either be OFFSET or just a comma
-  Expression offset;
+  Expression offset; // nullable
 
   Limit({this.count, this.offsetSeparator, this.offset});
 
   @override
-  T accept<T>(AstVisitor<T> visitor) {
-    return visitor.visitLimit(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitLimit(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    count = transformer.transformChild(count, this, arg);
+    offset = transformer.transformNullableChild(offset, this, arg);
   }
 
   @override

@@ -81,7 +81,7 @@ mixin _ExecutorWithQueryDelegate on QueryExecutor {
   }
 
   @override
-  Future<void> runBatched(List<BatchedStatement> statements) {
+  Future<void> runBatched(BatchedStatements statements) {
     assert(_ensureOpenCalled);
     return _synchronized(() {
       if (logStatements) {
@@ -122,7 +122,7 @@ class _TransactionExecutor extends TransactionExecutor
   }
 
   @override
-  Future<bool> ensureOpen() async {
+  Future<bool> ensureOpen(_) async {
     _ensureOpenCalled = true;
     if (_openingCompleter != null) {
       return await _openingCompleter.future;
@@ -176,6 +176,9 @@ class _TransactionExecutor extends TransactionExecutor
 
   @override
   Future<void> send() async {
+    // don't do anything if the transaction completes before it was opened
+    if (_openingCompleter == null) return;
+
     if (_sendOnCommit != null) {
       await runCustom(_sendOnCommit, const []);
       _db.delegate.isInTransaction = false;
@@ -186,6 +189,9 @@ class _TransactionExecutor extends TransactionExecutor
 
   @override
   Future<void> rollback() async {
+    // don't do anything if the transaction completes before it was opened
+    if (_openingCompleter == null) return;
+
     if (_sendOnRollback != null) {
       await runCustom(_sendOnRollback, const []);
       _db.delegate.isInTransaction = false;
@@ -227,7 +233,7 @@ class DelegatedDatabase extends QueryExecutor with _ExecutorWithQueryDelegate {
   }
 
   @override
-  Future<bool> ensureOpen() {
+  Future<bool> ensureOpen(QueryExecutorUser user) {
     _ensureOpenCalled = true;
     return _openingLock.synchronized(() async {
       final alreadyOpen = await delegate.isOpen;
@@ -235,30 +241,27 @@ class DelegatedDatabase extends QueryExecutor with _ExecutorWithQueryDelegate {
         return true;
       }
 
-      assert(databaseInfo != null,
-          'A databaseInfo needs to be set to use a QueryExeuctor');
-      await delegate.open(databaseInfo);
-      await _runMigrations();
+      await delegate.open(user);
+      await _runMigrations(user);
       return true;
     });
   }
 
-  Future<void> _runMigrations() async {
+  Future<void> _runMigrations(QueryExecutorUser user) async {
     final versionDelegate = delegate.versionDelegate;
     int oldVersion;
-    final currentVersion = databaseInfo.schemaVersion;
+    final currentVersion = user.schemaVersion;
 
     if (versionDelegate is NoVersionDelegate) {
       // this one is easy. There is no version mechanism, so we don't run any
       // migrations. Assume database is on latest version.
-      oldVersion = databaseInfo.schemaVersion;
+      oldVersion = user.schemaVersion;
     } else if (versionDelegate is OnOpenVersionDelegate) {
       // version has already been set during open
       oldVersion = await versionDelegate.loadSchemaVersion();
     } else if (versionDelegate is DynamicVersionDelegate) {
-      // set version now
       oldVersion = await versionDelegate.schemaVersion;
-      await versionDelegate.setSchemaVersion(currentVersion);
+      // Note: We only update the schema version after migrations ran
     } else {
       throw Exception('Invalid delegate: $delegate. The versionDelegate getter '
           'must not subclass DBVersionDelegate directly');
@@ -270,17 +273,14 @@ class DelegatedDatabase extends QueryExecutor with _ExecutorWithQueryDelegate {
       oldVersion = null;
     }
 
-    final dbCreated = oldVersion == null;
+    final openingDetails = OpeningDetails(oldVersion, currentVersion);
+    await user.beforeOpen(_BeforeOpeningExecutor(this), openingDetails);
 
-    if (dbCreated) {
-      await databaseInfo.handleDatabaseCreation(executor: runCustom);
-    } else if (oldVersion != currentVersion) {
-      await databaseInfo.handleDatabaseVersionChange(
-          executor: runCustom, from: oldVersion, to: currentVersion);
+    if (versionDelegate is DynamicVersionDelegate) {
+      // set version now, after migrations ran successfully
+      await versionDelegate.setSchemaVersion(currentVersion);
     }
 
-    final openingDetails = OpeningDetails(oldVersion, currentVersion);
-    await _runBeforeOpen(openingDetails);
     delegate.notifyDatabaseOpened(openingDetails);
   }
 
@@ -289,8 +289,14 @@ class DelegatedDatabase extends QueryExecutor with _ExecutorWithQueryDelegate {
     return _TransactionExecutor(this);
   }
 
-  Future<void> _runBeforeOpen(OpeningDetails d) {
-    return databaseInfo.beforeOpenCallback(_BeforeOpeningExecutor(this), d);
+  @override
+  Future<void> close() {
+    if (_ensureOpenCalled) {
+      return delegate.close();
+    } else {
+      // User never attempted to open the database, so this is a no-op.
+      return Future.value();
+    }
   }
 }
 
@@ -309,11 +315,14 @@ class _BeforeOpeningExecutor extends QueryExecutor
   TransactionExecutor beginTransaction() => _base.beginTransaction();
 
   @override
-  Future<bool> ensureOpen() {
+  Future<bool> ensureOpen(_) {
     _ensureOpenCalled = true;
     return Future.value(true);
   }
 
   @override
   QueryDelegate get impl => _base.impl;
+
+  @override
+  bool get logStatements => _base.logStatements;
 }

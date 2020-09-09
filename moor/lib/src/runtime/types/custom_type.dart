@@ -5,6 +5,8 @@ part of 'sql_types.dart';
 ///
 /// Moor currently supports [DateTime], [double], [int], [Uint8List], [bool]
 /// and [String] for [S].
+///
+/// Also see [ColumnBuilder.map] for details.
 abstract class TypeConverter<D, S> {
   /// Empty constant constructor so that subclasses can have a constant
   /// constructor.
@@ -17,4 +19,24 @@ abstract class TypeConverter<D, S> {
   /// Maps a column from the database back to Dart. Be aware that [fromDb] is
   /// nullable.
   D mapToDart(S fromDb);
+}
+
+/// Implementation for an enum to int converter that uses the index of the enum
+/// as the value stored in the database.
+class EnumIndexConverter<T> extends TypeConverter<T, int> {
+  /// All values of the enum.
+  final List<T> values;
+
+  /// Constant default constructor.
+  const EnumIndexConverter(this.values);
+
+  @override
+  T mapToDart(int fromDb) {
+    return fromDb == null ? null : values[fromDb];
+  }
+
+  @override
+  int mapToSql(T value) {
+    return (value as dynamic)?.index as int;
+  }
 }

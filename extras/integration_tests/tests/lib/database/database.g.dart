@@ -52,8 +52,31 @@ class User extends DataClass implements Insertable<User> {
           .mapFromDatabaseResponse(data['${effectivePrefix}preferences'])),
     );
   }
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || id != null) {
+      map['id'] = Variable<int>(id);
+    }
+    if (!nullToAbsent || name != null) {
+      map['name'] = Variable<String>(name);
+    }
+    if (!nullToAbsent || birthDate != null) {
+      map['birth_date'] = Variable<DateTime>(birthDate);
+    }
+    if (!nullToAbsent || profilePicture != null) {
+      map['profile_picture'] = Variable<Uint8List>(profilePicture);
+    }
+    if (!nullToAbsent || preferences != null) {
+      final converter = $UsersTable.$converter0;
+      map['preferences'] = Variable<String>(converter.mapToSql(preferences));
+    }
+    return map;
+  }
+
   factory User.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
     return User(
       id: serializer.fromJson<int>(json['id']),
       name: serializer.fromJson<String>(json['name']),
@@ -63,8 +86,8 @@ class User extends DataClass implements Insertable<User> {
     );
   }
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'name': serializer.toJson<String>(name),
@@ -72,23 +95,6 @@ class User extends DataClass implements Insertable<User> {
       'profilePicture': serializer.toJson<Uint8List>(profilePicture),
       'preferences': serializer.toJson<Preferences>(preferences),
     };
-  }
-
-  @override
-  UsersCompanion createCompanion(bool nullToAbsent) {
-    return UsersCompanion(
-      id: id == null && nullToAbsent ? const Value.absent() : Value(id),
-      name: name == null && nullToAbsent ? const Value.absent() : Value(name),
-      birthDate: birthDate == null && nullToAbsent
-          ? const Value.absent()
-          : Value(birthDate),
-      profilePicture: profilePicture == null && nullToAbsent
-          ? const Value.absent()
-          : Value(profilePicture),
-      preferences: preferences == null && nullToAbsent
-          ? const Value.absent()
-          : Value(preferences),
-    );
   }
 
   User copyWith(
@@ -155,6 +161,22 @@ class UsersCompanion extends UpdateCompanion<User> {
     this.preferences = const Value.absent(),
   })  : name = Value(name),
         birthDate = Value(birthDate);
+  static Insertable<User> custom({
+    Expression<int> id,
+    Expression<String> name,
+    Expression<DateTime> birthDate,
+    Expression<Uint8List> profilePicture,
+    Expression<String> preferences,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (birthDate != null) 'birth_date': birthDate,
+      if (profilePicture != null) 'profile_picture': profilePicture,
+      if (preferences != null) 'preferences': preferences,
+    });
+  }
+
   UsersCompanion copyWith(
       {Value<int> id,
       Value<String> name,
@@ -168,6 +190,29 @@ class UsersCompanion extends UpdateCompanion<User> {
       profilePicture: profilePicture ?? this.profilePicture,
       preferences: preferences ?? this.preferences,
     );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (birthDate.present) {
+      map['birth_date'] = Variable<DateTime>(birthDate.value);
+    }
+    if (profilePicture.present) {
+      map['profile_picture'] = Variable<Uint8List>(profilePicture.value);
+    }
+    if (preferences.present) {
+      final converter = $UsersTable.$converter0;
+      map['preferences'] =
+          Variable<String>(converter.mapToSql(preferences.value));
+    }
+    return map;
   }
 }
 
@@ -246,33 +291,30 @@ class $UsersTable extends Users with TableInfo<$UsersTable, User> {
   @override
   final String actualTableName = 'users';
   @override
-  VerificationContext validateIntegrity(UsersCompanion d,
+  VerificationContext validateIntegrity(Insertable<User> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.id.present) {
-      context.handle(_idMeta, id.isAcceptableValue(d.id.value, _idMeta));
-    } else if (id.isRequired && isInserting) {
-      context.missing(_idMeta);
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id'], _idMeta));
     }
-    if (d.name.present) {
+    if (data.containsKey('name')) {
       context.handle(
-          _nameMeta, name.isAcceptableValue(d.name.value, _nameMeta));
-    } else if (name.isRequired && isInserting) {
+          _nameMeta, name.isAcceptableOrUnknown(data['name'], _nameMeta));
+    } else if (isInserting) {
       context.missing(_nameMeta);
     }
-    if (d.birthDate.present) {
+    if (data.containsKey('birth_date')) {
       context.handle(_birthDateMeta,
-          birthDate.isAcceptableValue(d.birthDate.value, _birthDateMeta));
-    } else if (birthDate.isRequired && isInserting) {
+          birthDate.isAcceptableOrUnknown(data['birth_date'], _birthDateMeta));
+    } else if (isInserting) {
       context.missing(_birthDateMeta);
     }
-    if (d.profilePicture.present) {
+    if (data.containsKey('profile_picture')) {
       context.handle(
           _profilePictureMeta,
-          profilePicture.isAcceptableValue(
-              d.profilePicture.value, _profilePictureMeta));
-    } else if (profilePicture.isRequired && isInserting) {
-      context.missing(_profilePictureMeta);
+          profilePicture.isAcceptableOrUnknown(
+              data['profile_picture'], _profilePictureMeta));
     }
     context.handle(_preferencesMeta, const VerificationResult.success());
     return context;
@@ -287,35 +329,12 @@ class $UsersTable extends Users with TableInfo<$UsersTable, User> {
   }
 
   @override
-  Map<String, Variable> entityToSql(UsersCompanion d) {
-    final map = <String, Variable>{};
-    if (d.id.present) {
-      map['id'] = Variable<int, IntType>(d.id.value);
-    }
-    if (d.name.present) {
-      map['name'] = Variable<String, StringType>(d.name.value);
-    }
-    if (d.birthDate.present) {
-      map['birth_date'] = Variable<DateTime, DateTimeType>(d.birthDate.value);
-    }
-    if (d.profilePicture.present) {
-      map['profile_picture'] =
-          Variable<Uint8List, BlobType>(d.profilePicture.value);
-    }
-    if (d.preferences.present) {
-      final converter = $UsersTable.$converter0;
-      map['preferences'] =
-          Variable<String, StringType>(converter.mapToSql(d.preferences.value));
-    }
-    return map;
-  }
-
-  @override
   $UsersTable createAlias(String alias) {
     return $UsersTable(_db, alias);
   }
 
-  static PreferenceConverter $converter0 = const PreferenceConverter();
+  static TypeConverter<Preferences, String> $converter0 =
+      const PreferenceConverter();
 }
 
 class Friendship extends DataClass implements Insertable<Friendship> {
@@ -340,8 +359,24 @@ class Friendship extends DataClass implements Insertable<Friendship> {
           data['${effectivePrefix}really_good_friends']),
     );
   }
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (!nullToAbsent || firstUser != null) {
+      map['first_user'] = Variable<int>(firstUser);
+    }
+    if (!nullToAbsent || secondUser != null) {
+      map['second_user'] = Variable<int>(secondUser);
+    }
+    if (!nullToAbsent || reallyGoodFriends != null) {
+      map['really_good_friends'] = Variable<bool>(reallyGoodFriends);
+    }
+    return map;
+  }
+
   factory Friendship.fromJson(Map<String, dynamic> json,
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
+      {ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
     return Friendship(
       firstUser: serializer.fromJson<int>(json['firstUser']),
       secondUser: serializer.fromJson<int>(json['secondUser']),
@@ -349,28 +384,13 @@ class Friendship extends DataClass implements Insertable<Friendship> {
     );
   }
   @override
-  Map<String, dynamic> toJson(
-      {ValueSerializer serializer = const ValueSerializer.defaults()}) {
+  Map<String, dynamic> toJson({ValueSerializer serializer}) {
+    serializer ??= moorRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'firstUser': serializer.toJson<int>(firstUser),
       'secondUser': serializer.toJson<int>(secondUser),
       'reallyGoodFriends': serializer.toJson<bool>(reallyGoodFriends),
     };
-  }
-
-  @override
-  FriendshipsCompanion createCompanion(bool nullToAbsent) {
-    return FriendshipsCompanion(
-      firstUser: firstUser == null && nullToAbsent
-          ? const Value.absent()
-          : Value(firstUser),
-      secondUser: secondUser == null && nullToAbsent
-          ? const Value.absent()
-          : Value(secondUser),
-      reallyGoodFriends: reallyGoodFriends == null && nullToAbsent
-          ? const Value.absent()
-          : Value(reallyGoodFriends),
-    );
   }
 
   Friendship copyWith(
@@ -417,6 +437,18 @@ class FriendshipsCompanion extends UpdateCompanion<Friendship> {
     this.reallyGoodFriends = const Value.absent(),
   })  : firstUser = Value(firstUser),
         secondUser = Value(secondUser);
+  static Insertable<Friendship> custom({
+    Expression<int> firstUser,
+    Expression<int> secondUser,
+    Expression<bool> reallyGoodFriends,
+  }) {
+    return RawValuesInsertable({
+      if (firstUser != null) 'first_user': firstUser,
+      if (secondUser != null) 'second_user': secondUser,
+      if (reallyGoodFriends != null) 'really_good_friends': reallyGoodFriends,
+    });
+  }
+
   FriendshipsCompanion copyWith(
       {Value<int> firstUser,
       Value<int> secondUser,
@@ -426,6 +458,21 @@ class FriendshipsCompanion extends UpdateCompanion<Friendship> {
       secondUser: secondUser ?? this.secondUser,
       reallyGoodFriends: reallyGoodFriends ?? this.reallyGoodFriends,
     );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (firstUser.present) {
+      map['first_user'] = Variable<int>(firstUser.value);
+    }
+    if (secondUser.present) {
+      map['second_user'] = Variable<int>(secondUser.value);
+    }
+    if (reallyGoodFriends.present) {
+      map['really_good_friends'] = Variable<bool>(reallyGoodFriends.value);
+    }
+    return map;
   }
 }
 
@@ -479,28 +526,29 @@ class $FriendshipsTable extends Friendships
   @override
   final String actualTableName = 'friendships';
   @override
-  VerificationContext validateIntegrity(FriendshipsCompanion d,
+  VerificationContext validateIntegrity(Insertable<Friendship> instance,
       {bool isInserting = false}) {
     final context = VerificationContext();
-    if (d.firstUser.present) {
+    final data = instance.toColumns(true);
+    if (data.containsKey('first_user')) {
       context.handle(_firstUserMeta,
-          firstUser.isAcceptableValue(d.firstUser.value, _firstUserMeta));
-    } else if (firstUser.isRequired && isInserting) {
+          firstUser.isAcceptableOrUnknown(data['first_user'], _firstUserMeta));
+    } else if (isInserting) {
       context.missing(_firstUserMeta);
     }
-    if (d.secondUser.present) {
-      context.handle(_secondUserMeta,
-          secondUser.isAcceptableValue(d.secondUser.value, _secondUserMeta));
-    } else if (secondUser.isRequired && isInserting) {
+    if (data.containsKey('second_user')) {
+      context.handle(
+          _secondUserMeta,
+          secondUser.isAcceptableOrUnknown(
+              data['second_user'], _secondUserMeta));
+    } else if (isInserting) {
       context.missing(_secondUserMeta);
     }
-    if (d.reallyGoodFriends.present) {
+    if (data.containsKey('really_good_friends')) {
       context.handle(
           _reallyGoodFriendsMeta,
-          reallyGoodFriends.isAcceptableValue(
-              d.reallyGoodFriends.value, _reallyGoodFriendsMeta));
-    } else if (reallyGoodFriends.isRequired && isInserting) {
-      context.missing(_reallyGoodFriendsMeta);
+          reallyGoodFriends.isAcceptableOrUnknown(
+              data['really_good_friends'], _reallyGoodFriendsMeta));
     }
     return context;
   }
@@ -514,22 +562,6 @@ class $FriendshipsTable extends Friendships
   }
 
   @override
-  Map<String, Variable> entityToSql(FriendshipsCompanion d) {
-    final map = <String, Variable>{};
-    if (d.firstUser.present) {
-      map['first_user'] = Variable<int, IntType>(d.firstUser.value);
-    }
-    if (d.secondUser.present) {
-      map['second_user'] = Variable<int, IntType>(d.secondUser.value);
-    }
-    if (d.reallyGoodFriends.present) {
-      map['really_good_friends'] =
-          Variable<bool, BoolType>(d.reallyGoodFriends.value);
-    }
-    return map;
-  }
-
-  @override
   $FriendshipsTable createAlias(String alias) {
     return $FriendshipsTable(_db, alias);
   }
@@ -537,6 +569,7 @@ class $FriendshipsTable extends Friendships
 
 abstract class _$Database extends GeneratedDatabase {
   _$Database(QueryExecutor e) : super(SqlTypeSystem.defaultInstance, e);
+  _$Database.connect(DatabaseConnection c) : super.connect(c);
   $UsersTable _users;
   $UsersTable get users => _users ??= $UsersTable(this);
   $FriendshipsTable _friendships;
@@ -552,23 +585,15 @@ abstract class _$Database extends GeneratedDatabase {
     );
   }
 
-  Selectable<User> mostPopularUsersQuery(int amount) {
-    return customSelectQuery(
+  Selectable<User> mostPopularUsers(int amount) {
+    return customSelect(
         'SELECT * FROM users u ORDER BY (SELECT COUNT(*) FROM friendships WHERE first_user = u.id OR second_user = u.id) DESC LIMIT :amount',
         variables: [Variable.withInt(amount)],
         readsFrom: {users, friendships}).map(_rowToUser);
   }
 
-  Future<List<User>> mostPopularUsers(int amount) {
-    return mostPopularUsersQuery(amount).get();
-  }
-
-  Stream<List<User>> watchMostPopularUsers(int amount) {
-    return mostPopularUsersQuery(amount).watch();
-  }
-
-  Selectable<int> amountOfGoodFriendsQuery(int user) {
-    return customSelectQuery(
+  Selectable<int> amountOfGoodFriends(int user) {
+    return customSelect(
         'SELECT COUNT(*) FROM friendships f WHERE f.really_good_friends AND (f.first_user = :user OR f.second_user = :user)',
         variables: [
           Variable.withInt(user)
@@ -578,75 +603,61 @@ abstract class _$Database extends GeneratedDatabase {
         }).map((QueryRow row) => row.readInt('COUNT(*)'));
   }
 
-  Future<List<int>> amountOfGoodFriends(int user) {
-    return amountOfGoodFriendsQuery(user).get();
+  FriendshipsOfResult _rowToFriendshipsOfResult(QueryRow row) {
+    return FriendshipsOfResult(
+      reallyGoodFriends: row.readBool('really_good_friends'),
+      user: users.mapFromRowOrNull(row, tablePrefix: 'nested_0'),
+    );
   }
 
-  Stream<List<int>> watchAmountOfGoodFriends(int user) {
-    return amountOfGoodFriendsQuery(user).watch();
-  }
-
-  Selectable<User> friendsOfQuery(int user) {
-    return customSelectQuery(
-        'SELECT u.* FROM friendships f\n         INNER JOIN users u ON u.id IN (f.first_user, f.second_user) AND\n           u.id != :user\n         WHERE (f.first_user = :user OR f.second_user = :user)',
+  Selectable<FriendshipsOfResult> friendshipsOf(int user) {
+    return customSelect(
+        'SELECT \n          f.really_good_friends, "user"."id" AS "nested_0.id", "user"."name" AS "nested_0.name", "user"."birth_date" AS "nested_0.birth_date", "user"."profile_picture" AS "nested_0.profile_picture", "user"."preferences" AS "nested_0.preferences"\n       FROM friendships f\n         INNER JOIN users user ON user.id IN (f.first_user, f.second_user) AND\n             user.id != :user\n       WHERE (f.first_user = :user OR f.second_user = :user)',
         variables: [Variable.withInt(user)],
-        readsFrom: {friendships, users}).map(_rowToUser);
+        readsFrom: {friendships, users}).map(_rowToFriendshipsOfResult);
   }
 
-  Future<List<User>> friendsOf(int user) {
-    return friendsOfQuery(user).get();
-  }
-
-  Stream<List<User>> watchFriendsOf(int user) {
-    return friendsOfQuery(user).watch();
-  }
-
-  Selectable<int> userCountQuery() {
-    return customSelectQuery('SELECT COUNT(id) FROM users',
+  Selectable<int> userCount() {
+    return customSelect('SELECT COUNT(id) FROM users',
         variables: [],
         readsFrom: {users}).map((QueryRow row) => row.readInt('COUNT(id)'));
   }
 
-  Future<List<int>> userCount() {
-    return userCountQuery().get();
-  }
-
-  Stream<List<int>> watchUserCount() {
-    return userCountQuery().watch();
-  }
-
-  Selectable<Preferences> settingsForQuery(int user) {
-    return customSelectQuery('SELECT preferences FROM users WHERE id = :user',
+  Selectable<Preferences> settingsFor(int user) {
+    return customSelect('SELECT preferences FROM users WHERE id = :user',
             variables: [Variable.withInt(user)], readsFrom: {users})
         .map((QueryRow row) =>
             $UsersTable.$converter0.mapToDart(row.readString('preferences')));
   }
 
-  Future<List<Preferences>> settingsFor(int user) {
-    return settingsForQuery(user).get();
-  }
-
-  Stream<List<Preferences>> watchSettingsFor(int user) {
-    return settingsForQuery(user).watch();
-  }
-
-  Selectable<User> usersByIdQuery(List<int> var1) {
+  Selectable<User> usersById(List<int> var1) {
     var $arrayStartIndex = 1;
     final expandedvar1 = $expandVar($arrayStartIndex, var1.length);
     $arrayStartIndex += var1.length;
-    return customSelectQuery('SELECT * FROM users WHERE id IN ($expandedvar1)',
+    return customSelect('SELECT * FROM users WHERE id IN ($expandedvar1)',
         variables: [for (var $ in var1) Variable.withInt($)],
         readsFrom: {users}).map(_rowToUser);
   }
 
-  Future<List<User>> usersById(List<int> var1) {
-    return usersByIdQuery(var1).get();
-  }
-
-  Stream<List<User>> watchUsersById(List<int> var1) {
-    return usersByIdQuery(var1).watch();
-  }
-
   @override
-  List<TableInfo> get allTables => [users, friendships];
+  Iterable<TableInfo> get allTables => allSchemaEntities.whereType<TableInfo>();
+  @override
+  List<DatabaseSchemaEntity> get allSchemaEntities => [users, friendships];
+}
+
+class FriendshipsOfResult {
+  final bool reallyGoodFriends;
+  final User user;
+  FriendshipsOfResult({
+    this.reallyGoodFriends,
+    this.user,
+  });
+  @override
+  int get hashCode => $mrjf($mrjc(reallyGoodFriends.hashCode, user.hashCode));
+  @override
+  bool operator ==(dynamic other) =>
+      identical(this, other) ||
+      (other is FriendshipsOfResult &&
+          other.reallyGoodFriends == this.reallyGoodFriends &&
+          other.user == this.user);
 }

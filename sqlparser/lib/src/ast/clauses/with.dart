@@ -11,7 +11,14 @@ class WithClause extends AstNode {
   WithClause({@required this.recursive, @required this.ctes});
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitWithClause(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitWithClause(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    transformer.transformChildren(ctes, this, arg);
+  }
 
   @override
   Iterable<AstNode> get childNodes => ctes;
@@ -20,14 +27,14 @@ class WithClause extends AstNode {
   bool contentEquals(WithClause other) => other.recursive == recursive;
 }
 
-class CommonTableExpression extends AstNode with ResultSet, VisibleToChildren {
+class CommonTableExpression extends AstNode with ResultSet {
   final String cteTableName;
 
   /// If this common table expression has explicit column names, e.g. with
   /// `cnt(x) AS (...)`, contains the column names (`['x']`, in that case).
   /// Otherwise null.
   final List<String> columnNames;
-  final BaseSelectStatement as;
+  BaseSelectStatement as;
 
   Token asToken;
   IdentifierToken tableNameToken;
@@ -38,8 +45,13 @@ class CommonTableExpression extends AstNode with ResultSet, VisibleToChildren {
       {@required this.cteTableName, this.columnNames, @required this.as});
 
   @override
-  T accept<T>(AstVisitor<T> visitor) {
-    return visitor.visitCommonTableExpression(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitCommonTableExpression(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    as = transformer.transformChild(as, this, arg);
   }
 
   @override
@@ -76,4 +88,7 @@ class CommonTableExpression extends AstNode with ResultSet, VisibleToChildren {
 
     return _cachedColumns;
   }
+
+  @override
+  bool get visibleToChildren => true;
 }

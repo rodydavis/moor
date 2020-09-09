@@ -22,7 +22,7 @@ final Map<String, Expression> _testCases = {
           'GROUPS BETWEEN UNBOUNDED PRECEDING AND 3 FOLLOWING EXCLUDE TIES)':
       AggregateExpression(
     function: identifier('row_number'),
-    parameters: const StarFunctionParameter(),
+    parameters: StarFunctionParameter(),
     filter: NumericLiteral(1, token(TokenType.numberLiteral)),
     windowDefinition: WindowDefinition(
       baseWindowName: 'base_name',
@@ -32,7 +32,7 @@ final Map<String, Expression> _testCases = {
       ],
       frameSpec: FrameSpec(
         type: FrameType.groups,
-        start: const FrameBoundary.unboundedPreceding(),
+        start: FrameBoundary.unboundedPreceding(),
         end: FrameBoundary.following(
           NumericLiteral(3, token(TokenType.numberLiteral)),
         ),
@@ -47,8 +47,8 @@ final Map<String, Expression> _testCases = {
     windowDefinition: WindowDefinition(
       frameSpec: FrameSpec(
         type: FrameType.range,
-        start: const FrameBoundary.currentRow(),
-        end: const FrameBoundary.currentRow(),
+        start: FrameBoundary.currentRow(),
+        end: FrameBoundary.currentRow(),
         excludeMode: ExcludeMode.noOthers,
       ),
     ),

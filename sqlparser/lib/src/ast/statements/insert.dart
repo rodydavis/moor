@@ -12,9 +12,10 @@ enum InsertMode {
 
 class InsertStatement extends CrudStatement {
   final InsertMode mode;
-  final TableReference table;
+  TableReference table;
   final List<Reference> targetColumns;
-  final InsertSource source;
+  InsertSource source;
+  UpsertClause upsert;
 
   List<Column> get resolvedTargetColumns {
     if (targetColumns.isNotEmpty) {
@@ -25,26 +26,35 @@ class InsertStatement extends CrudStatement {
     }
   }
 
-  // todo parse upsert clauses
-
   InsertStatement(
       {WithClause withClause,
       this.mode = InsertMode.insert,
       @required this.table,
       @required this.targetColumns,
-      @required this.source})
+      @required this.source,
+      this.upsert})
       : super._(withClause);
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitInsertStatement(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitInsertStatement(this, arg);
+  }
 
   @override
-  Iterable<AstNode> get childNodes sync* {
-    if (withClause != null) yield withClause;
-    yield table;
-    yield* targetColumns;
-    yield* source.childNodes;
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    withClause = transformer.transformNullableChild(withClause, this, arg);
+    table = transformer.transformChild(table, this, arg);
+    transformer.transformChildren(targetColumns, this, arg);
   }
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        if (withClause != null) withClause,
+        table,
+        ...targetColumns,
+        source,
+        if (upsert != null) upsert
+      ];
 
   @override
   bool contentEquals(InsertStatement other) {
@@ -52,11 +62,7 @@ class InsertStatement extends CrudStatement {
   }
 }
 
-abstract class InsertSource {
-  Iterable<AstNode> get childNodes;
-
-  const InsertSource();
-
+abstract class InsertSource extends AstNode {
   T when<T>(
       {T Function(ValuesSource) isValues,
       T Function(SelectInsertSource) isSelect,
@@ -81,22 +87,57 @@ class ValuesSource extends InsertSource {
 
   @override
   Iterable<AstNode> get childNodes => values;
+
+  @override
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitValuesSource(this, arg);
+  }
+
+  @override
+  bool contentEquals(ValuesSource other) => true;
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    transformer.transformChildren(values, this, arg);
+  }
 }
 
 /// Inserts the rows returned by [stmt].
 class SelectInsertSource extends InsertSource {
-  final BaseSelectStatement stmt;
+  BaseSelectStatement stmt;
 
   SelectInsertSource(this.stmt);
 
   @override
   Iterable<AstNode> get childNodes => [stmt];
+
+  @override
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitSelectInsertSource(this, arg);
+  }
+
+  @override
+  bool contentEquals(SelectInsertSource other) => true;
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    stmt = transformer.transformChild(stmt, this, arg);
+  }
 }
 
 /// Use `DEFAULT VALUES` for an insert statement.
 class DefaultValues extends InsertSource {
-  const DefaultValues();
-
   @override
   Iterable<AstNode> get childNodes => const [];
+
+  @override
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitDefaultValues(this, arg);
+  }
+
+  @override
+  bool contentEquals(DefaultValues other) => true;
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {}
 }

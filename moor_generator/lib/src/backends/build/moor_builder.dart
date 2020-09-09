@@ -10,28 +10,14 @@ import 'package:moor_generator/src/backends/build/generators/moor_generator.dart
 import 'package:moor_generator/writer.dart';
 import 'package:source_gen/source_gen.dart';
 
-class MoorBuilder extends SharedPartBuilder {
-  final MoorOptions options;
+class _BuilderFlags {
+  bool didWarnAboutDeprecatedOptions = false;
+}
 
-  MoorBuilder._(List<Generator> generators, String name, this.options)
-      : super(generators, name);
+final _flags = Resource(() => _BuilderFlags());
 
-  factory MoorBuilder(BuilderOptions options) {
-    final parsedOptions = MoorOptions.fromJson(options.config);
-
-    final generators = <Generator>[
-      MoorGenerator(),
-      DaoGenerator(),
-    ];
-
-    final builder = MoorBuilder._(generators, 'moor', parsedOptions);
-
-    for (final generator in generators.cast<BaseGenerator>()) {
-      generator.builder = builder;
-    }
-
-    return builder;
-  }
+mixin MoorBuilder on Builder {
+  MoorOptions get options;
 
   Writer createWriter() => Writer(options);
 
@@ -39,7 +25,7 @@ class MoorBuilder extends SharedPartBuilder {
     Task task;
     FoundFile input;
     try {
-      final backend = BuildBackend();
+      final backend = BuildBackend(options);
       final backendTask = backend.createTask(step);
       final session = MoorSession(backend, options: options);
 
@@ -51,6 +37,68 @@ class MoorBuilder extends SharedPartBuilder {
     }
 
     return input?.currentResult as ParsedDartFile;
+  }
+}
+
+T _createBuilder<T extends MoorBuilder>(
+  BuilderOptions options,
+  T Function(List<Generator> generators, MoorOptions parsedOptions) creator,
+) {
+  final parsedOptions = MoorOptions.fromJson(options.config);
+
+  final generators = <Generator>[
+    MoorGenerator(),
+    DaoGenerator(),
+  ];
+
+  final builder = creator(generators, parsedOptions);
+
+  for (final generator in generators.cast<BaseGenerator>()) {
+    generator.builder = builder;
+  }
+
+  return builder;
+}
+
+class MoorSharedPartBuilder extends SharedPartBuilder with MoorBuilder {
+  @override
+  final MoorOptions options;
+
+  MoorSharedPartBuilder._(List<Generator> generators, String name, this.options)
+      : super(generators, name);
+
+  factory MoorSharedPartBuilder(BuilderOptions options) {
+    return _createBuilder(options, (generators, parsedOptions) {
+      return MoorSharedPartBuilder._(generators, 'moor', parsedOptions);
+    });
+  }
+
+  @override
+  Future build(BuildStep buildStep) async {
+    final flags = await buildStep.fetchResource(_flags);
+    if (!flags.didWarnAboutDeprecatedOptions &&
+        options.enabledDeprecatedOption) {
+      print('You have the eagerly_load_dart_ast option enabled. The option is '
+          'no longer necessary and will be removed in a future moor version. '
+          'Consider removing the option from your build.yaml.');
+      flags.didWarnAboutDeprecatedOptions = true;
+    }
+
+    return super.build(buildStep);
+  }
+}
+
+class MoorPartBuilder extends PartBuilder with MoorBuilder {
+  @override
+  final MoorOptions options;
+
+  MoorPartBuilder._(List<Generator> generators, String extension, this.options)
+      : super(generators, extension);
+
+  factory MoorPartBuilder(BuilderOptions options) {
+    return _createBuilder(options, (generators, parsedOptions) {
+      return MoorPartBuilder._(generators, '.moor.dart', parsedOptions);
+    });
   }
 }
 

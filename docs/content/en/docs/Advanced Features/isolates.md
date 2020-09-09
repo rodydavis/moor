@@ -37,7 +37,7 @@ class TodoDb extends _$TodoDb {
 
 With the database class ready, let's open it on a background isolate
 ```dart
-import 'package:moor/isolates.dart';
+import 'package:moor/isolate.dart';
 
 // This needs to be a top-level method because it's run on a background isolate
 DatabaseConnection _backgroundConnection() {
@@ -92,7 +92,7 @@ Future<MoorIsolate> _createMoorIsolate() async {
 }
 
 void _startBackground(_IsolateStartRequest request) {
-  // this is the entrypoint from the background isolate! Let's create
+  // this is the entry point from the background isolate! Let's create
   // the database from the path we received
   final executor = VmDatabase(File(request.targetPath));
   // we're using MoorIsolate.inCurrent here as this method already runs on a
@@ -105,7 +105,7 @@ void _startBackground(_IsolateStartRequest request) {
   request.sendMoorIsolate.send(moorIsolate);
 }
 
-// used to bundle the SendPort and the target path, since isolate entrypoint
+// used to bundle the SendPort and the target path, since isolate entry point
 // functions can only take one parameter.
 class _IsolateStartRequest {
   final SendPort sendMoorIsolate;
@@ -123,8 +123,7 @@ It will disconnect all databases and then close the background isolate, releasin
 
 ## Common operation modes
 
-The `MoorIsolate` object itself can be sent across isolates, so if you have more than one isolate
-from which you want to use moor, that's no problem!
+You can use a `MoorIsolate` across multiple isolates you control and connect from any of them.
 
 __One executor isolate, one foreground isolate__: This is the most common usage mode. You would call
 `MoorIsolate.spawn` from the `main` method in your Flutter or Dart app. Similar to the example above,
@@ -139,10 +138,29 @@ a setup where you have three or more threads:
 - A foreground isolate, probably for Flutter
 - Another background isolate, which could be used for networking.
 
-You can the read data from the foreground isolate or start query streams, similar to the example
+You can then read data from the foreground isolate or start query streams, similar to the example
 above. The background isolate would _also_ call `MoorIsolate.connect` and create its own instance
 of the generated database class. Writes to one database will be visible to the other isolate and
 also update query streams.
+
+To safely send a `MoorIsolate` instance across a `SendPort`, it's recommended to instead send the
+underlying `SendPort` used internally by `MoorIsolate`:
+
+```dart
+// Don't do this, it doesn't work in all circumstances
+void shareMoorIsolate(MoorIsolate isolate, SendPort sendPort) {
+  sendPort.send(isolate);
+}
+
+// Instead, send the underlying SendPort:
+void shareMoorIsolate(MoorIsolate isolate, SendPort sendPort) {
+  sendPort.send(isolate.connectPort);
+}
+```
+
+The receiving end can reconstruct a `MoorIsolate` from a `SendPort` by using the
+`MoorIsolate.fromConnectPort` constructor. That `MoorIsolate` behaves exactly like the original
+one, but we only had to send a primitive `SendPort` and not a complex Dart object.
 
 ## How does this work? Are there any limitations?
 
@@ -153,7 +171,7 @@ All moor features are supported on background isolates and work out of the box. 
 - Batched updates and inserts
 - Custom statements or those generated from an sql api
 
-Please note that, will using a background isolate can reduce lag on the UI thread, the overall
+Please note that, while using a background isolate can reduce lag on the UI thread, the overall
 database is going to be slower! There's a overhead involved in sending data between
 isolates, and that's exactly what moor has to do internally. If you're not running into dropped
 frames because of moor, using a background isolate is probably not necessary for your app.

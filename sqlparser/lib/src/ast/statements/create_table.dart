@@ -1,8 +1,7 @@
 part of '../ast.dart';
 
 abstract class TableInducingStatement extends Statement
-    with SchemaStatement
-    implements PartOfMoorFile {
+    implements CreatingStatement {
   final bool ifNotExists;
   final String tableName;
 
@@ -15,6 +14,9 @@ abstract class TableInducingStatement extends Statement
 
   TableInducingStatement._(this.ifNotExists, this.tableName,
       [this.overriddenDataClassName]);
+
+  @override
+  String get createdName => tableName;
 }
 
 /// A "CREATE TABLE" statement, see https://www.sqlite.org/lang_createtable.html
@@ -37,7 +39,15 @@ class CreateTableStatement extends TableInducingStatement {
       : super._(ifNotExists, tableName, overriddenDataClassName);
 
   @override
-  T accept<T>(AstVisitor<T> visitor) => visitor.visitCreateTableStatement(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitCreateTableStatement(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {
+    transformer.transformChildren(columns, this, arg);
+    transformer.transformChildren(tableConstraints, this, arg);
+  }
 
   @override
   Iterable<AstNode> get childNodes => [...columns, ...tableConstraints];
@@ -54,6 +64,7 @@ class CreateTableStatement extends TableInducingStatement {
 class CreateVirtualTableStatement extends TableInducingStatement {
   /// The module that will be invoked when creating the virtual table.
   final String moduleName;
+  Token moduleNameToken;
 
   /// Arguments passed to the module. Since the specific module is responsible
   /// for parsing them, the general parser only exposes them as strings with a
@@ -74,8 +85,12 @@ class CreateVirtualTableStatement extends TableInducingStatement {
   }) : super._(ifNotExists, tableName, overriddenDataClassName);
 
   @override
-  T accept<T>(AstVisitor<T> visitor) =>
-      visitor.visitCreateVirtualTableStatement(this);
+  R accept<A, R>(AstVisitor<A, R> visitor, A arg) {
+    return visitor.visitCreateVirtualTableStatement(this, arg);
+  }
+
+  @override
+  void transformChildren<A>(Transformer<A> transformer, A arg) {}
 
   @override
   Iterable<AstNode> get childNodes => const [];
